@@ -1,0 +1,217 @@
+{
+  "data": "SYNTHETIC_ONLY",
+  "pass": 42,
+  "fail": 0,
+  "results": [
+    {
+      "test": "FORMAT parsing by named keys",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Trailing placeholder AD is explicit",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "No-call genotype is not a variant",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Malformed FORMAT stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Multiallelic GT stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Negative read depth stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Zero VAF denominator remains NA",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "INFO cannot replace missing FORMAT SB",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "First WES chain keeps two expected artificial variants",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Second WES chain explicitly includes normal artifact",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Strict WES chain remains a distinct method",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Missing/zero metrics do not become accepted variants",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Duplicate VEP default stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Named join collision stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Variant dedup never creates Cartesian NA rows",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "WTS counts preserve raw integer scale and sample order",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Fractional counts rejected without rounding",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Missing count values rejected",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Sample mismatch rejected",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "HP metadata conflict rejected",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Complete artificial pairs yield full-rank model",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Incomplete pairing stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Independent model cannot silently treat repeated patients",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Confounded patient and between-patient group design stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Unresolved design is an explicit error",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "GSEA ranking order is metric-based with no significance prefilter",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Source-alternative pvalue prefilter is separate",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "KEGG mapping is keyed by gene ID, never row position",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Duplicate KEGG rank IDs stop by default",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Target identity does not depend on first row",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Count zero and missing remain distinct",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Taxon ID/name disagreement stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Duplicate target taxon stops",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Absent target not assumed to be zero",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Imported fractions cannot be summed across duplicate taxa",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Incorrect abundance units rejected",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Z-score mean/sd checked independently",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Zero reference variance error is explicit",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Zero variance NA policy does not invent zeros",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Missing reference values are not imputed",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Absolute paths are rejected",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "test": "Directory escape rejected",
+      "status": "PASS",
+      "detail": ""
+    }
+  ]
+}

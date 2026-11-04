@@ -1,0 +1,4 @@
+sample_column	sample_id	role	include
+SYN_T_A	SYN_WES_A	tumor	TRUE
+SYN_T_B	SYN_WES_B	tumor	TRUE
+SYN_N_A	SYN_NORMAL_A	normal	TRUE

@@ -1,0 +1,13 @@
+input_column	sample_id	metric
+SYN_A_count	SYN_MICRO_A	count
+SYN_B_count	SYN_MICRO_B	count
+SYN_C_count	SYN_MICRO_C	count
+SYN_D_count	SYN_MICRO_D	count
+SYN_A_pct	SYN_MICRO_A	relative_abundance
+SYN_B_pct	SYN_MICRO_B	relative_abundance
+SYN_C_pct	SYN_MICRO_C	relative_abundance
+SYN_D_pct	SYN_MICRO_D	relative_abundance
+SYN_A_z	SYN_MICRO_A	zscore_relative
+SYN_B_z	SYN_MICRO_B	zscore_relative
+SYN_C_z	SYN_MICRO_C	zscore_relative
+SYN_D_z	SYN_MICRO_D	zscore_relative

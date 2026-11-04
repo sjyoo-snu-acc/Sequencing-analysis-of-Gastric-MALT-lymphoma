@@ -1,3 +1,0 @@
-taxon_id	taxon_name	rank	SYN_A_count	SYN_B_count	SYN_C_count	SYN_D_count	SYN_A_pct	SYN_B_pct	SYN_C_pct	SYN_D_pct	SYN_A_z	SYN_B_z	SYN_C_z	SYN_D_z
-SYN_OTHER_TAXON	Synthetic other species	species	990	1000	970	NA	99	100	97	NA	NA	NA	NA	NA
-SYN_HP_TAXON	Helicobacter pylori	species	10	0	30	NA	1	0	3	NA	-0.2	-0.8	1.4	NA

@@ -1,9 +1,0 @@
-sample_id	patient_id	type	hp_status	group	include
-SYN_WTS_01	SYN_PAIR_1	Normal	Positive	HPpos_Normal	TRUE
-SYN_WTS_02	SYN_PAIR_2	Normal	Positive	HPpos_Normal	TRUE
-SYN_WTS_03	SYN_PAIR_3	Normal	Positive	HPpos_Normal	TRUE
-SYN_WTS_04	SYN_PAIR_4	Normal	Positive	HPpos_Normal	TRUE
-SYN_WTS_05	SYN_PAIR_1	Normal	Negative	HPneg_Normal	TRUE
-SYN_WTS_06	SYN_PAIR_2	Normal	Negative	HPneg_Normal	TRUE
-SYN_WTS_07	SYN_PAIR_3	Normal	Negative	HPneg_Normal	TRUE
-SYN_WTS_08	SYN_PAIR_4	Normal	Negative	HPneg_Normal	TRUE

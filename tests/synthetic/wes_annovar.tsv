@@ -1,5 +1,0 @@
-ID	Chr	Start	End	Ref	Alt	Func.refGene	Gene.refGene	GeneDetail.refGene	AAChange.refGene	ExonicFunc.refGene	ExonicFunc.ensGene	cosmic96_coding	FILTER	INFO	FORMAT	SYN_T_A	SYN_T_B	SYN_N_A
-SYN_VAR_1	chr1	101	101	A	G	exonic	SYN_GENE_1	.	SYN_GENE_1:SYN_TX:exon1:c.1A>G:p.K1R	nonsynonymous SNV	nonsynonymous SNV	TEST_ONLY;stomach	PASS	SYNTHETIC_ONLY	GT:AD:DP:SB	0/1:80,20:100:40,40,10,10	0/0:100,0:100:50,50,0,0	0/0:100,0:100:50,50,0,0
-SYN_VAR_2	chr1	102	102	A	G	exonic	SYN_GENE_2	.	SYN_GENE_2:SYN_TX:exon1:c.1A>G:p.K1R	nonsynonymous SNV	nonsynonymous SNV	TEST_ONLY;stomach	normal_artifact	SYNTHETIC_ONLY	DP:SB:AD:GT	100:40,40,10,10:80,20:0/1	100:50,50,0,0:100,0:0/0	100:50,50,0,0:100,0:0/0
-SYN_VAR_3	chr1	103	103	A	G	exonic	SYN_GENE_3	.	SYN_GENE_3:SYN_TX:exon1:c.1A>G:p.K1R	nonsynonymous SNV	nonsynonymous SNV	TEST_ONLY;stomach	PASS	SYNTHETIC_ONLY	GT:AD:DP:SB:AF	0/1:80,20,.:100:40,40,10,10:0.2	0/0:100,0:100:50,50,0,0:0	0/0:100,0:100:50,50,0,0:0
-SYN_VAR_4	chr1	104	104	A	G	exonic	SYN_GENE_4	.	SYN_GENE_4:SYN_TX:exon1:c.1A>G:p.K1R	nonsynonymous SNV	nonsynonymous SNV	TEST_ONLY;stomach	PASS	SYNTHETIC_ONLY	GT:AD:DP:SB	0/1:80,20:100:40,40,20,0	./.:.:.:.:.	0/0:100,0:100:50,50,0,0

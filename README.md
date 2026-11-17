@@ -1,57 +1,87 @@
-# Gastric MALT lymphoma analysis
+# Sequencing analysis of gastric MALT lymphoma
 
-R scripts for WES, WTS and H. pylori quantitation in gastric MALT lymphoma.
+R scripts for downstream WES, WTS and microbiome analyses accompanying the manuscript. `WES.R` follows `Trimmedddd.R`; `WTS.R` retains `ENSG2SYM`, `degsea`, `pheatcustom` and the four original comparison calls from `250326.R`. `Microbiome.R` makes the original genus/diversity/regression analysis independently executable.
 
 | File | Analysis |
 | --- | --- |
-| [WES.R](WES.R) | ANNOVAR/VEP annotations, genotype filters, variant tables and SNV/indel oncoplot |
-| [WTS.R](WTS.R) | Raw-count analysis with DESeq2, DEG tables and GO/KEGG GSEA |
-| [Microbiome.R](Microbiome.R) | H. pylori read counts, relative abundance and Z-scores from an existing taxonomic table |
-| [METHODS.md](METHODS.md) | Input columns, analysis settings, source-code correspondence and remaining study questions |
+| `WES.R` | ANNOVAR/VEP merge, genotype parsing, somatic variant filtering, MAF and oncoplots |
+| `WTS.R` | Expected-count processing, DESeq2, volcano plots, heatmaps and optional GO/KEGG/Hallmark GSEA |
+| `Microbiome.R` | Genus composition, imported or explicitly recalculated alpha diversity, univariate regressions and the original four-genus Shannon model |
+| `METHODS.md` | Input schemas, retained analysis choices, changes and limitations |
+| `VALIDATION.md` | Checks completed and remaining manuscript-result differences |
+| `examples/` | Artificial data demonstrating the input formats; no study specimens |
 
-## Running an analysis
+## Installation
 
-1. Download this repository and open the required R script in RStudio.
-2. Set `Project.dir` to the local repository directory. Input paths in `SET` are relative to this directory.
-3. Place the input TSV files under `data/`, following the columns described in [METHODS.md](METHODS.md).
-4. Edit the settings at the top of the script. Fill required `NULL` settings with confirmed analysis choices; WTS comparisons are in `VAR`, and enrichment settings are in `GO` and `KEGG`.
-5. Click Source once. Each script contains the functions needed for that module.
+Use R with a compatible Bioconductor release. Install packages before running; the analysis scripts do not install or update packages.
 
-No separate setup script or configuration file is needed. With `Install.packages <- TRUE`, the script installs missing packages from CRAN or Bioconductor without updating installed packages. Package installation requires repository access and a compatible R/Bioconductor environment. Set it to `FALSE` to use an already prepared environment. Routine progress messages are suppressed; errors and calculation warnings remain visible.
+```r
+install.packages(c("dplyr", "ggplot2", "stringr", "reshape2", "RColorBrewer",
+                   "ggrepel", "matrixStats", "pheatmap", "writexl"))
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install(c("S4Vectors", "DESeq2", "maftools", "clusterProfiler",
+                      "AnnotationDbi", "org.Hs.eg.db", "GO.db", "BiocParallel",
+                      "enrichplot"), update = FALSE, ask = FALSE)
+```
 
-## Requirements and inputs
+`dplyr >= 1.1.1` is required for the explicit annotation join. `biomaRt` is needed only if the optional live Ensembl mapping is enabled. A local mapping file is the default.
 
-| Module | R packages used directly, in addition to base R | Inputs |
-| --- | --- | --- |
-| All | jsonlite, digest, dplyr | Tab-delimited files with explicit identifiers and metadata |
-| WES | maftools when MAF/oncoplot output is enabled | ANNOVAR and VEP tables, sample-role metadata; verified case map when reporting case aliases |
-| WTS | DESeq2; clusterProfiler for GSEA; the selected OrgDb for GO source-API mode | Raw integer counts, sample/patient metadata, local gene-ID mapping and stated reference settings |
-| Microbiome | No additional packages beyond the common packages | Species-level taxon table, sample/metric column map, metadata; explicit denominator/reference samples for optional recomputation |
+The manuscript reports R 4.2.2 and DESeq2 1.38.3. The original full environment and database snapshots were not supplied. This revision was checked in R 4.3.3 / DESeq2 1.42.0; those versions describe the new validation environment, not the historical analysis. See `VALIDATION.md` for the checks actually completed.
 
-The validation environment used R 4.3.3, DESeq2 1.42.0, maftools 2.26.1 and dplyr 1.2.1. These are measured validation versions, not the unknown original study environment. A historical package lockfile is not available.
+## Running the scripts
 
-## Outputs
+1. Download the repository and set the R working directory to its root.
+2. Prepare the corresponding private input directory below. Edit the named paths/settings at the start of the chosen script where necessary.
+3. Run `source("WES.R")`, `source("WTS.R")` or `source("Microbiome.R")`.
 
-Each execution creates `results/<module>/<Run.ID>/`. Existing run directories are not overwritten.
+The equivalent command-line calls are `Rscript WES.R`, `Rscript WTS.R` and `Rscript Microbiome.R`, from the repository directory.
 
-| Module | Main outputs |
+Each script creates `results/<module>/<Run.ID>/`, with a timestamp as the default run ID. An existing run directory stops execution; choose a new `Run.ID` after a failed or completed run. Outputs include the actual input file MD5 hashes, settings, sample selections and `sessionInfo.txt` on successful completion. WTS additionally records gene mappings and comparison metadata/design matrices. There is no separate `SET` configuration object or automatic package installer.
+
+## Inputs
+
+Input column names and sample IDs are case-sensitive. Supply tab-delimited files with headers and no row-number column. Study-specific mappings and patient/specimen data are not included in the repository.
+
+| Directory | Required files |
 | --- | --- |
-| WES | Variant selection audit, selected variants, per-sample counts, optional MAF and oncoplot |
-| WTS | Complete/selected/upregulated/downregulated DEG tables, model/contrast records, optional GO/KEGG tables and ranking files |
-| Microbiome | Imported target metrics, H. pylori quantitative summary and quantitation provenance |
+| `data/WES/` | `R.GML_H.pylori_n10_Mutect2_paired_merged.AnnoVar.hg19_multianno.txt`, `R.GML_H.pylori_n10_Mutect2_paired_merged.VEP.result.txt`, `sample_info.tsv` |
+| `data/WTS/` | `H.pylori-Gastric_MALToma-WTS-COUNT.tsv`, `H.pylori-Gastric_MALToma-WTS-TPM.tsv`, `grouptable_new.tsv`, `gene_symbols.tsv` |
+| `data/Microbiome/` | `genus_counts.tsv`, `genus_relative_percent.tsv`, `alpha_diversity.tsv`, `grouptable_new.tsv` |
 
-Every run also saves `configuration_used.json`, `input_hashes.tsv`, `run_status.json` and `sessionInfo.txt`.
+**WES.** `sample_info.tsv` contains `sample_column`, `case_number`, `include_wes` (`TRUE/FALSE`), `hp_status` (`positive/negative/unknown`), and optionally `include_plot` (`TRUE/FALSE`). List the genotype columns to be parsed, including controls marked `include_wes=FALSE`. Included cases require an identifier; a fusion-only plotting case can have an empty `sample_column`. Optional `declared_fusions.tsv` contains `case_number`, `gene_symbol` and, preferably, provenance. Declared fusions are external annotations and are never converted into fictitious SNV/indel calls.
 
-## Relationship to the reported results
+**WTS.** COUNT and TPM retain the source layout: `gene_id`, one empty annotation column, then identical sample columns in identical order. COUNT contains nonnegative RSEM expected counts, not TPM. The original `as.integer` truncation is retained explicitly as `Count.mode="truncate"`; `"integer"` instead requires integer input. This is not a tximport/length-offset workflow. Metadata columns are `Name`, `sample` (`Normal/Tumor/Eradicated`) and `HP` (`positive/negative`). The five-part source name `01-6001-N-WTS-1` maps to metadata name `N1_016001`. `gene_symbols.tsv` contains `gene_id` and `symbol`; document its database, release and download date in `Annotation.label`. See the synthetic files for the exact layout.
 
-WES methods relate to Supplementary Table S13. WTS methods relate to Table 2 and Supplementary Tables S1-S12. Table 1 contains clinical characteristics. Neither supplied final workbook contains a quantitative microbiome table.
+**Microbiome.** The first column of each matrix is `genus`; subsequent columns are exact metadata sample IDs. Rows are unique genus names, including `Helicobacter`, `Rothia`, `Veillonella` and `Porphyromonas`. The read matrix contains untransformed counts; the relative-abundance matrix contains **percentages from 0 to 100**, with the same genera and samples. An explicit zero is required for a genuinely absent genus. Do not use species-level *H. pylori* rows in place of genus-level *Helicobacter*. `alpha_diversity.tsv` contains `sample`, `Shannon`, `Simpson_index`; `grouptable_new.tsv` uses the WTS metadata schema. Matrix axes and alpha rows can be reordered: alignment is by identifiers.
 
-The original analysis objects and processing order are retained where supported by the source. Required metadata and method choices are explicit: the final WES filter profile, case aliases, WTS pairing/model/direction and database snapshots are not established by the supplied code alone. Missing required information stops execution. The S4 raw/adjusted p-value relationship and the source/report KEGG adjustment discrepancy remain unresolved; values and columns have not been exchanged.
+For an original wide Pavian export, explicitly select its genus rows and sample read/percentage columns to prepare these two matrices. Do not infer sample/metric identity from four-column blocks or truncate sample names. Record the taxonomic database, upstream tool/version, confidence setting, abundance denominator, and alpha-diversity calculation/rank in `Input.description` and your data documentation.
 
-## Verification and data availability
+## Retained settings and corrections
 
-The three scripts passed R parsing and synthetic-input checks in the preceding code revision. This packaging revision leaves all three script files unchanged. GO/KEGG statistical-engine execution was not performed because clusterProfiler was unavailable. Actual study execution and numerical reproduction of the final tables have not been performed: study inputs and verified mappings were not supplied.
+- WES retains DP >= 50, alternate depth >= 5, strand ratio 0.25–4, VAF >= 0.05 and < 0.40, and the original annotation/COSMIC/consequence filters. Population AF is compared numerically. `AF.column="AF_eas"` explicitly selects the first duplicated ANNOVAR AF block; the second is `AF_eas_2`. The 0.1 fraction threshold and retention of missing `.` annotations are unchanged. Confirm the database identity/release of the selected block before describing it as a specific gnomAD release.
+- WTS uses `abs(log2FoldChange) >= 1` and `padj <= 0.05` consistently for up/down selection and volcano colors. This corrects the source's use of raw p-values for colors/selection while plotting adjusted p-values. DESeq2 raw p-values and adjusted values are both retained in the output.
+- WTS retains the source exclusion `Exclude.ID=c("10")`, excludes follow-up samples from DEG analysis, and keeps the original comparison models below. The reason for excluding identifier 10 was not supplied; it is not labelled a confirmed QC decision. Patient IDs in source filenames must be reconciled with the manuscript's case IDs privately.
+- Microbiome includes its own supplied samples, including follow-ups. It does not inherit WTS exclusions. Its default regressions use the source's percentage predictor (`Predictor.metric="relative_percent"`), not raw read counts. The manuscript's wording/units require checking against the original microbial data.
 
-Original source files, final workbooks, specimen-level data, synthetic fixtures and development checks are kept in separate review material. Local inputs and results are excluded by `.gitignore`; review any local script settings before committing them. The public repository consists of the three scripts, this README, METHODS.md and `.gitignore`.
+| WTS numerator / denominator | Model |
+| --- | --- |
+| PNormal / NNormal | `~ Type` |
+| PTumor / PNormal | `~ ID + Type` |
+| PTumor / NTumor | `~ Type` |
+| NTumor / NNormal | `~ Type` |
 
-License, author/citation details and publication identifiers require confirmation by the owner. No repository URL, release or DOI has been assigned.
+`Run.GSEA=TRUE` runs GO and KEGG. GO retains the original positive LFC-rank score with seeded random ties and `scoreType="pos"`; KEGG retains signed LFC scores. These source choices are documented, not replaced with a new enrichment method. The source seed 48575 is reset before each comparison's GSEA so optional plots do not alter random draws; the backend is serial. Local references can be reused with `Use.reference.cache=TRUE`; see METHODS.md. `Run.Hallmark=FALSE` by default; enabling the retained optional Hallmark calculation requires a named local `hallmark_term2gene.tsv` with `gs_name` and `human_gene_symbol`, and its release provenance.
+
+Microbiome defaults to importing the original alpha values. `Alpha.mode="calculate"` explicitly recalculates genus-level Shannon with natural logs and Simpson as `1-sum(p^2)`. `Relative.mode="sum_genus_counts"` explicitly derives percentages from the supplied genus-count total. These alternatives are not claimed to be the historical methods. The original multivariable formula remains `Shannon ~ Helicobacter + Rothia + Veillonella + Porphyromonas`; four separate genus predictors are also fitted univariately to each diversity index. No unreported group-comparison test or clinical positivity cutoff is added.
+
+## Outputs and verification limits
+
+WES writes `selected_variants.tsv`, per-case counts, the source-named `BeforeFiltering.tsv` (the **post-filter** ANNOVAR-to-MAF input), a SNV/indel MAF and oncoplot, and a separate declared-event table/plot. Plot cohort size comes from metadata, including specified mutation-negative cases.
+
+WTS writes full/up/down DEG TSVs, full DEG workbooks, volcano plots and TPM heatmaps. With GSEA enabled it also saves enrichment tables, ranking vectors, result objects, reference snapshots and package/database information. `Make.plots=FALSE` skips figures, not statistical fitting. `Run.GSEA=FALSE` skips enrichment and must not be described as a full WTS/GSEA run.
+
+Microbiome writes genus composition and diversity figures, keyed regression inputs, model objects, coefficients with 95% confidence intervals, and Figure 3 analysis plots. These are generated from the supplied data; the manuscript's coefficients are not hardcoded or sign-corrected.
+
+The scripts start from processed annotations, expression matrices and microbial tables. FASTQ processing, Mutect2, fusion callers/intersection, Kraken2 and upstream alpha-diversity tools are not executed here. The manuscript lists sequence accession **PRJNA1088908**; reproducing downstream results additionally requires the processed inputs, specimen mapping and reference versions described above.
+
+The code revision and computational checks do not establish exact numerical reproduction of every published table or figure. Actual microbiome inputs and the historical annotation/environment were not supplied; remaining result discrepancies are recorded in `VALIDATION.md`. No patient data or study result workbooks are bundled.

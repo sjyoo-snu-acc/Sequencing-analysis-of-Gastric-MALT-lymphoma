@@ -1,538 +1,990 @@
-# WTS
+# WTS analysis. Set the working directory to your private input folder.
+# Required inputs retain their original filenames below; they are not public data.
+# The original ENSG2SYM function from Toolbox.R is included in this file.
+# Main analysis: the four comparisons in sections [07]-[10].
+# Later exploratory sections are retained inside if (FALSE) for manual use.
+# Install the packages listed below before running the script.
 
-# Parameters ----
-Project.dir<-getwd()
-Install.packages<-TRUE
-Run.ID<-paste0("WTS-", format(Sys.time(), "%Y%m%d-%H%M%S"))
-Output.folder<-"results/WTS"
+#┌──────────────────────────────────┐
+#│ [01] library install & load      │----
+#└──────────────────────────────────┘
+rm(list=ls())
+gc()
+#Useless
+# .libPaths("path/to/R/library")
+# ip = as.data.frame(installed.packages())
+# head(ip)
+# ip = subset(ip, !grepl("MRO", ip$LibPath))
+# ip = ip[!(ip[,"Priority"] %in% c("base", "recommended")),]
+# path.lib = unique(ip$LibPath)
+# pkgs.to.remove = ip[,1]
+# head(pkgs.to.remove)
+# sapply(pkgs.to.remove, remove.packages, lib = path.lib)
 
-VAR<-list(
-   list(
-      id = "S1_S5_S9", factor = "group", numerator = NULL, denominator = NULL, design = NULL,
-      model_kind = NULL, repeated_patients = "error", reference_levels = NULL
-   ),
-   list(
-      id = "S2_S6_S10", factor = "group", numerator = NULL, denominator = NULL, design = NULL,
-      model_kind = NULL, repeated_patients = "error", reference_levels = NULL
-   ),
-   list(
-      id = "S3_S7_S11", factor = "group", numerator = NULL, denominator = NULL, design = NULL,
-      model_kind = NULL, repeated_patients = "error", reference_levels = NULL
-   ),
-   list(
-      id = "S4_S8_S12", factor = "group", numerator = NULL, denominator = NULL, design = NULL,
-      model_kind = NULL, repeated_patients = "error", reference_levels = NULL
+# install.packages("MASS")
+# install.packages("BiocManager")
+
+# BiocManager::install("dplyr")
+# BiocManager::install("ggplot2")
+# BiocManager::install("ggrepel")
+# BiocManager::install("stringr")
+# BiocManager::install("biomaRt")
+# BiocManager::install("scales")
+# BiocManager::install("affy")
+# BiocManager::install("S4Vectors")
+# BiocManager::install("DESeq2")
+# BiocManager::install("clusterProfiler")
+# BiocManager::install("reshape2")
+# BiocManager::install("viridis")
+# BiocManager::install("ggsignif")
+# BiocManager::install("enrichplot")
+# BiocManager::install("pathview")
+# BiocManager::install("psych")
+# BiocManager::install("vegan")
+# BiocManager::install("msigdbr",force=T)
+# BiocManager::install("ggpubr",force=T)
+####
+library(S4Vectors)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(stringr)
+library(biomaRt)
+library(scales)
+library(affy)
+library(DESeq2)
+library(matrixStats)
+library(clusterProfiler)
+library(reshape2)
+library(viridis)
+library(ggsignif)
+library(enrichplot)
+library(pathview)
+library(psych)
+library(vegan)
+library(msigdbr)
+library(pheatmap)
+library(ggpubr)
+#library(adespatial)
+#library(ade4)
+#┌──────────────────────────────────┐
+#│ [02] Set seed & options          │----
+#└──────────────────────────────────┘
+set.seed(48575)
+# Working directory: folder containing the private input files.
+R.utils::setOption("clusterProfiler.download.method","auto")
+enrichR.DBs=c("KEGG_2021_Human","GO_Molecular_Function_2021","MSigDB_Hallmark_2020")
+range=3
+col2=colorRampPalette(c("dodgerblue", "white", "coral"))
+#┌──────────────────────────────────┐
+#│ [03] input data load             │----
+#└──────────────────────────────────┘
+# Nomalized expression level data load
+TPM = read.table("H.pylori-Gastric_MALToma-WTS-TPM.tsv",header = T,check.names = F,sep = "\t")
+colnames(TPM) = gsub("-", ".", colnames(TPM)) # "-"가 특정 tool에서 colname으로 받아들여지지 않을 때가 있어, 이를 피하기 위해
+rownames(TPM) = TPM$gene_id # gene_id를 rowname으로 넣고 불필요한 column 삭제
+TPM = TPM[,-c(1,2)]
+
+# Expected count data load
+CNT = read.table("H.pylori-Gastric_MALToma-WTS-COUNT.tsv",header = T,check.names = F,sep = "\t")
+colnames(CNT) = gsub("-",".",colnames(CNT))
+rownames(CNT) = CNT$gene_id
+CNT=CNT[,-c(1,2)]
+
+# reprocess colnames
+tmp = str_split(colnames(TPM),"\\.")%>%as.data.frame()%>%t()%>%as.data.frame()
+colnames(TPM)=paste0(tmp$V3,tmp$V5,"_",tmp$V1,tmp$V2)
+colnames(CNT)=paste0(tmp$V3,tmp$V5,"_",tmp$V1,tmp$V2)
+rm(tmp)
+
+# Metadata
+#Group=read.table("grouptable.tsv",header=T) # Early
+#Group=read.table("grouptable2.tsv",header=T) # previous sample metadata
+#Group=read.table("grouptable3.tsv",header=T) # previous sample metadata
+Group=read.table("grouptable_new.tsv",header=T) # original sample metadata
+
+Group=Group%>%
+   mutate(Type=case_when(
+      (sample=="Normal" & HP=="positive") ~ "PNormal",
+      (sample=="Tumor" & HP=="positive") ~ "PTumor",
+      (sample=="Eradicated" & HP=="positive") ~ "PFollowup",
+      (sample=="Normal" & HP=="negative") ~ "NNormal",
+      (sample=="Tumor" & HP=="negative") ~ "NTumor",
+      (sample=="Eradicated" & HP=="negative") ~ "NFollowup"
    )
-)
+   )%>%
+   mutate(ID=substr(Name,4,5))
+Group$Type=factor(Group$Type,levels = c("PNormal","NNormal","PTumor","NTumor","PFollowup","NFollowup"))
+Group=Group[order(Group$Type),]
+Group$Type=as.character(Group$Type)
 
-GO<-list(
-   engine = NULL,
-   reference_label = NULL,
-   orgdb = "org.Hs.eg.db",
-   ontology = "ALL",
-   key_type = "ENSEMBL",
-   term2gene = NULL,
-   term2name = NULL,
-   parameters = list(
-      minGSSize = NULL, maxGSSize = NULL, pvalueCutoff = NULL, pAdjustMethod = NULL, exponent = NULL,
-      eps = NULL, seed = NULL
-   )
-)
+# 10 excluding
+TPM = TPM[,!substr(colnames(TPM),4,5)%in%c("10")]
+CNT = CNT[,!substr(colnames(CNT),4,5)%in%c("10")]
+Group = Group%>%filter(ID!="10")
 
-KEGG<-list(
-   engine = NULL,
-   reference_label = NULL,
-   organism = "hsa",
-   key_type = "ncbi-geneid",
-   use_internal_data = FALSE,
-   term2gene = NULL,
-   term2name = NULL,
-   parameters = list(
-      minGSSize = NULL, maxGSSize = NULL, pvalueCutoff = NULL, pAdjustMethod = NULL, exponent = NULL,
-      eps = NULL, seed = NULL
-   )
-)
+# Exclude followup
+Group=Group%>%
+   filter(!grepl("Followup",Group$Type))
+TPM=TPM[,colnames(TPM)%in%(Group$Name)]
+CNT=CNT[,colnames(CNT)%in%(Group$Name)]
 
-SET<-list(
-   seed = 19970117,
-   counts = "data/WTS/counts.tsv",
-   metadata = "data/WTS/metadata.tsv",
-   input_scale = "raw_integer_counts",
-   count_annotation_columns = list(),
-   gene_id_policy = NULL,
-   duplicate_gene_policy = NULL,
-   fit_scope = NULL,
-   gene_mapping = "data/WTS/gene_mapping.tsv",
-   mapping_duplicate_policy = NULL,
-   annotation_label = NULL,
-   prefilter = list(mode = NULL, minimum = NULL),
-   deseq = list(test = "Wald", fitType = NULL, sfType = NULL, minReplicatesForReplace = NULL),
-   results = list(alpha = NULL, pAdjustMethod = NULL, independentFiltering = NULL, cooksCutoff = NULL),
-   deg = list(padj_cutoff = 0.05, abs_log2fc_cutoff = 1),
-   comparisons = VAR,
-   gsea = list(
-      enabled = TRUE,
-      ranking = list(
-         metric = NULL, prefilter = NULL, pvalue_cutoff = NULL, duplicate_rank_ids = NULL,
-         tie_policy = "stable_source_order"
-      ),
-      go = GO,
-      kegg = KEGG
-   )
-)
+table(Group$sample,Group$HP)
 
-# Checks and file I/O ----
-abort <- function(...) stop(sprintf(...), call. = FALSE)
+col_ann=data.frame(Group[order(Group$Type),]%>%dplyr::select("Name","Type"))
+rownames(col_ann) = col_ann$Name
+col_ann=col_ann%>%dplyr::select("Type")
+# GSEA_Ddatabase
+# for (A in c("C1","C2","C3","C4","C5","C6","C7","C8","H")){
+#    assign(paste0(A),readRDS(paste0('GSEA/',tolower(A),'.all.v7.5.1.symbols.RDS')))}
+# GSEAdb = mget(c("C1","C2","C3","C4","C5","C6","C7","C8","H"))
+# rm(list = c("C1","C2","C3","C4","C5","C6","C7","C8","H"),A)
+msigdb=msigdbr(species = "Homo sapiens")
 
-quiet_value <- function(expr) {
-   value <- NULL
-   invisible(utils::capture.output(value <- suppressMessages(force(expr)), type = "output"))
-   value
-}
+#┌──────────────────────────────────┐
+#│ [04] ENSEMBL ID -> HGNC SYMBOL   │----
+#└──────────────────────────────────┘
+# Original mapping function from Toolbox.R
+ENSG2SYM <- function(ENSG,
+                     method,
+                     integrated=FALSE){
 
-is_bioc_package <- function(package) {
-   package %in% c("DESeq2", "maftools", "clusterProfiler", "AnnotationDbi", "biomaRt") |
-      grepl("^org\\..*\\.db$", package)
-}
+   if (integrated==TRUE){
+      library(biomaRt)
+      library(stringr)
+      library(AnnotationDbi)
+      library(org.Hs.eg.db)
 
-need_packages <- function(packages) {
-   loaded <- function(package) suppressPackageStartupMessages(requireNamespace(package, quietly = TRUE))
-   absent <- packages[!vapply(packages, loaded, logical(1))]
-   if (!length(absent)) return(invisible(NULL))
-   if (!Install.packages) abort("Missing R packages: %s. Set Install.packages = TRUE in this file and run it again.", paste(absent, collapse = ", "))
-   old_repos <- getOption("repos")
-   on.exit(options(repos = old_repos), add = TRUE)
-   options(repos = c(CRAN = "https://cloud.r-project.org"))
-   bioc <- absent[is_bioc_package(absent)]
-   cran <- setdiff(absent, bioc)
-   if (length(cran)) quiet_value(utils::install.packages(cran, repos = "https://cloud.r-project.org", quiet = TRUE))
-   if (length(bioc)) {
-      if (!loaded("BiocManager")) quiet_value(utils::install.packages("BiocManager", repos = "https://cloud.r-project.org", quiet = TRUE))
-      if (!loaded("BiocManager")) abort("BiocManager installation failed. Check the R version and package repository connection.")
-      quiet_value(BiocManager::install(bioc, ask = FALSE, update = FALSE, quiet = TRUE))
-   }
-   absent <- packages[!vapply(packages, loaded, logical(1))]
-   if (length(absent)) abort("R package installation failed: %s. Check R/Bioconductor compatibility and package build requirements.", paste(absent, collapse = ", "))
-   invisible(NULL)
-}
-
-required <- function(x, keys, context) {
-  absent <- keys[vapply(keys, function(k) is.null(x[[k]]) || !length(x[[k]]) ||
-    (is.character(x[[k]]) && any(!nzchar(x[[k]]) | is.na(x[[k]]))), logical(1))]
-  if (length(absent)) abort("%s: unresolved/missing fields: %s", context, paste(absent, collapse = ", "))
-  invisible(x)
-}
-
-columns <- function(x, keys, context) {
-  if (anyDuplicated(names(x))) abort("%s has duplicate column names; supply an explicitly renamed input.", context)
-  absent <- setdiff(keys, names(x))
-  if (length(absent)) abort("%s: missing columns: %s", context, paste(absent, collapse = ", "))
-}
-
-unique_key <- function(x, context) {
-  if (anyNA(x) || any(!nzchar(as.character(x))) || anyDuplicated(x)) abort("%s must be nonmissing and unique.", context)
-}
-
-choose <- function(x, choices, context) {
-  if (length(x) != 1L || is.na(x) || !x %in% choices) abort("%s must be explicitly one of: %s", context, paste(choices, collapse = ", "))
-  x
-}
-
-numeric_strict <- function(x, context, allow_na = FALSE) {
-  text <- as.character(x)
-  missing <- is.na(x) | text %in% c("", ".", "NA")
-  value <- suppressWarnings(as.numeric(text))
-  if (any(!missing & (is.na(value) | !is.finite(value)))) abort("%s contains invalid/nonfinite numbers.", context)
-  value[missing] <- NA_real_
-  if (!allow_na && anyNA(value)) abort("%s contains missing numbers.", context)
-  value
-}
-
-read_tsv <- function(path, context = basename(path)) {
-  if (!file.exists(path)) abort("Missing input: %s", context)
-  widths <- count.fields(path, sep = "\t", quote = "", comment.char = "", blank.lines.skip = TRUE)
-  if (!length(widths) || anyNA(widths) || any(widths != widths[1])) abort("%s contains inconsistent TSV row widths.", context)
-  result <- read.delim(path, header = TRUE, sep = "\t", quote = "", comment.char = "",
-                       check.names = FALSE, stringsAsFactors = FALSE, colClasses = "character", na.strings = "NA")
-  if (anyDuplicated(names(result))) abort("%s contains duplicate headers; positional repair is not supported.", context)
-  result
-}
-
-repo_path <- function(root, path, context = "path") {
-  required(list(path = path), "path", context)
-  if (grepl("^(/|~|[A-Za-z]:|\\\\)", path)) abort("%s must be relative to Project.dir.", context)
-  pieces <- strsplit(gsub("\\\\", "/", path), "/", fixed = TRUE)[[1]]
-  if (".." %in% pieces) abort("%s may not escape Project.dir.", context)
-  file.path(root, path)
-}
-
-write_tsv <- function(x, path) {
-  if (file.exists(path)) abort("Refusing to overwrite file: %s", basename(path))
-  write.table(x, path, sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE, na = "NA")
-}
-
-validate_settings <- function(SET) {
-   if (!is.logical(Install.packages) || length(Install.packages) != 1L || is.na(Install.packages)) abort("Install.packages must be TRUE or FALSE.")
-   required(SET, c("module", "purpose", "method_status", "seed", "run_id", "output_dir"), "Analysis settings")
-   choose(SET$purpose, c("analysis", "synthetic_test"), "input purpose")
-   choose(SET$method_status, c("exploratory", "author_confirmed", "synthetic_only"), "method_status")
-   if (SET$purpose == "synthetic_test" && SET$method_status != "synthetic_only") abort("Test data require synthetic_only status.")
-   if (SET$purpose == "analysis" && SET$method_status == "synthetic_only") abort("Study analysis requires exploratory or author_confirmed status.")
-   if (length(SET$seed) != 1L || !is.finite(SET$seed) || SET$seed != as.integer(SET$seed)) abort("seed must be an integer.")
-   if (!grepl("^[A-Za-z0-9][A-Za-z0-9_.-]*$", SET$run_id)) abort("Run.ID must be a single safe directory name.")
-   invisible(SET)
-}
-
-new_run <- function(root, cfg, input_paths) {
-  directory <- file.path(repo_path(root, cfg$output_dir, "output_dir"), cfg$run_id)
-  if (dir.exists(directory) || file.exists(directory)) abort("Run already exists: %s. Choose a new run_id.", cfg$run_id)
-  if (!all(file.exists(input_paths))) abort("One or more configured inputs are missing.")
-  if (!dir.create(directory, recursive = TRUE, showWarnings = FALSE)) abort("Cannot create output directory.")
-  jsonlite::write_json(cfg, file.path(directory, "configuration_used.json"), pretty = TRUE, auto_unbox = TRUE, null = "null")
-  set.seed(as.integer(cfg$seed))
-  hashes <- data.frame(input = names(input_paths), sha256 = vapply(input_paths, function(p) digest::digest(file = p, algo = "sha256"), character(1)), stringsAsFactors = FALSE)
-  write_tsv(hashes, file.path(directory, "input_hashes.tsv"))
-  state <- list(module = cfg$module, purpose = cfg$purpose, method_status = cfg$method_status,
-                run_id = cfg$run_id, seed = cfg$seed, started_utc = format(Sys.time(), tz = "UTC", usetz = TRUE),
-                status = "RUNNING", manuscript_result_reproduction = "NOT_ASSESSED")
-  jsonlite::write_json(state, file.path(directory, "run_status.json"), pretty = TRUE, auto_unbox = TRUE)
-  list(directory = directory, state = state)
-}
-
-finish_run <- function(run, status, details = list()) {
-  run$state$status <- status
-  run$state$completed_utc <- format(Sys.time(), tz = "UTC", usetz = TRUE)
-  run$state$details <- details
-  jsonlite::write_json(run$state, file.path(run$directory, "run_status.json"), pretty = TRUE, auto_unbox = TRUE, null = "null")
-  writeLines(capture.output(sessionInfo()), file.path(run$directory, "sessionInfo.txt"))
-}
-
-read_counts <- function(path, metadata, annotation_columns, id_policy, duplicate_policy) {
-  raw <- read_tsv(path)
-  columns(raw, c("gene_id", annotation_columns), "Raw counts")
-  choose(id_policy, c("preserve", "strip_version"), "gene_id_policy")
-  choose(duplicate_policy, c("error", "sum_counts"), "duplicate_gene_policy")
-  sample_columns <- setdiff(names(raw), c("gene_id", annotation_columns))
-  if (!setequal(sample_columns, metadata$sample_id)) abort("Count columns and metadata sample_id must match exactly, including explicitly excluded samples.")
-  counts <- matrix(numeric_strict(as.matrix(raw[, metadata$sample_id, drop = FALSE]), "Raw counts"), nrow = nrow(raw),
-                   dimnames = list(NULL, metadata$sample_id))
-  if (!nrow(counts) || any(counts < 0 | counts != trunc(counts)) || any(counts > .Machine$integer.max))
-    abort("DESeq2 input requires nonnegative raw integer counts. TPM/fractional expected counts are not truncated or rounded.")
-  id <- raw$gene_id
-  if (id_policy == "strip_version") id <- sub("\\.[0-9]+$", "", id)
-  if (anyNA(id) || any(!nzchar(id))) abort("Missing gene IDs.")
-  if (anyDuplicated(id) && duplicate_policy == "error") abort("Duplicate gene IDs after the configured ID transformation.")
-  if (anyDuplicated(id)) counts <- rowsum(counts, group = id, reorder = FALSE) else rownames(counts) <- id
-  if (any(counts > .Machine$integer.max)) abort("Summed counts exceed integer storage.")
-  storage.mode(counts) <- "integer"
-  counts
-}
-
-validate_wts_metadata <- function(meta) {
-  columns(meta, c("sample_id", "patient_id", "type", "hp_status", "group", "include"), "WTS metadata")
-  unique_key(meta$sample_id, "WTS sample_id")
-  for (key in c("patient_id", "type", "hp_status", "group", "include")) {
-    if (anyNA(meta[[key]]) || any(!nzchar(meta[[key]]))) abort("WTS metadata %s cannot be missing.", key)
-  }
-  if (any(!meta$type %in% c("Normal", "Tumor", "After")) || any(!meta$hp_status %in% c("Positive", "Negative", "Unknown")))
-    abort("Use explicit Normal/Tumor/After and Positive/Negative/Unknown metadata labels.")
-  if (any(!meta$include %in% c("TRUE", "FALSE"))) abort("WTS include must be TRUE or FALSE.")
-  expected <- paste0(ifelse(meta$hp_status == "Positive", "HPpos_", ifelse(meta$hp_status == "Negative", "HPneg_", "HPunknown_")), meta$type)
-  standard <- grepl("^HP(pos|neg|unknown)_", meta$group)
-  if (any(standard & meta$group != expected)) abort("HP-stratified group label conflicts with explicit type/hp_status metadata.")
-  invisible(meta)
-}
-
-prepare_model <- function(meta, contrast) {
-  required(contrast, c("id", "factor", "numerator", "denominator", "design", "model_kind", "repeated_patients", "reference_levels"), "WTS comparison")
-  if (!grepl("^[A-Za-z0-9][A-Za-z0-9_.-]*$", contrast$id)) abort("Invalid comparison id.")
-  choose(contrast$model_kind, c("paired", "independent"), "model_kind")
-  choose(contrast$repeated_patients, c("error", "explicit_unpaired"), "repeated_patients")
-  # The supplied sources support additive fixed-effect models only.
-  if (!grepl("^~\\s*[A-Za-z][A-Za-z0-9_]*(\\s*\\+\\s*[A-Za-z][A-Za-z0-9_]*)*\\s*$", contrast$design))
-    abort("design must be an explicit additive formula such as ~ patient_id + group.")
-  formula <- as.formula(contrast$design)
-  vars <- all.vars(formula)
-  columns(meta, c(vars, contrast$factor), "Model metadata")
-  if (!contrast$factor %in% vars || contrast$numerator == contrast$denominator) abort("Contrast factor must be in design with distinct numerator/denominator.")
-  if (contrast$model_kind == "paired" && !"patient_id" %in% vars) abort("Paired model must include patient_id.")
-  if (contrast$model_kind == "independent" && "patient_id" %in% vars) abort("Independent model cannot silently include patient_id blocking.")
-  if (contrast$model_kind == "paired") {
-    pair_meta <- meta[meta[[contrast$factor]] %in% c(contrast$numerator, contrast$denominator), , drop = FALSE]
-    pairs <- table(pair_meta$patient_id, pair_meta[[contrast$factor]])
-    if (ncol(pairs) != 2L || !all(pairs == 1L)) abort("Paired comparison requires exactly one sample per patient in each contrast group. Incomplete pairs/replicates require a separate confirmed model.")
-  } else if (anyDuplicated(meta$patient_id)) {
-    if (contrast$repeated_patients != "explicit_unpaired") abort("Repeated patients detected in independent fit. Confirm model or explicitly record unpaired treatment.")
-    required(contrast, "unpaired_rationale", "Explicit unpaired treatment of repeated patients")
-  }
-  numeric_vars <- unlist(contrast$numeric_covariates, use.names = FALSE)
-  if (length(setdiff(numeric_vars, vars))) abort("numeric_covariates must occur in design.")
-  for (v in vars) {
-    if (v %in% numeric_vars) meta[[v]] <- numeric_strict(meta[[v]], paste("Covariate", v)) else {
-      required(contrast$reference_levels, v, paste("reference_levels for", v))
-      values <- meta[[v]]
-      if (anyNA(values) || any(!nzchar(values))) abort("Missing design factor: %s", v)
-      ref <- contrast$reference_levels[[v]]
-      if (!ref %in% values) abort("Reference level for %s is absent from fit population.", v)
-      meta[[v]] <- factor(values, levels = c(ref, sort(setdiff(unique(values), ref))))
-    }
-  }
-  if (!all(c(contrast$numerator, contrast$denominator) %in% levels(meta[[contrast$factor]]))) abort("One or both contrast groups are absent.")
-  matrix <- model.matrix(formula, data = meta)
-  if (qr(matrix)$rank < ncol(matrix)) abort("Design matrix is not full rank; do not resolve confounding by dropping patient/group terms automatically.")
-  if (nrow(matrix) <= ncol(matrix)) abort("Model has no residual degrees of freedom.")
-  rownames(meta) <- meta$sample_id
-  list(metadata = meta, formula = formula, matrix = matrix)
-}
-
-read_gene_mapping <- function(path, id_policy, policy) {
-  x <- read_tsv(path)
-  columns(x, c("gene_id", "symbol", "entrez_id"), "Gene mapping")
-  if (id_policy == "strip_version") x$gene_id <- sub("\\.[0-9]+$", "", x$gene_id)
-  choose(policy, c("error", "first_source_row"), "mapping_duplicate_policy")
-  if (anyNA(x$gene_id) || any(!nzchar(x$gene_id))) abort("Gene mapping requires nonmissing source IDs.")
-  if (anyDuplicated(x$gene_id) && policy == "error") abort("One-to-many gene mapping requires an explicit policy.")
-  x[!duplicated(x$gene_id), , drop = FALSE]
-}
-
-make_ranking <- function(result, settings, mapping = NULL, target = "gene_id") {
-  required(settings, c("metric", "prefilter", "duplicate_rank_ids", "tie_policy"), "GSEA ranking")
-  choose(settings$metric, c("log2FoldChange", "stat"), "ranking metric")
-  choose(settings$prefilter, c("all_tested", "pvalue_lt"), "GSEA prefilter")
-  choose(settings$duplicate_rank_ids, c("error", "first_source_row"), "duplicate_rank_ids")
-  choose(settings$tie_policy, "stable_source_order", "tie_policy")
-  keep <- is.finite(result[[settings$metric]])
-  if (settings$prefilter == "pvalue_lt") {
-    required(settings, "pvalue_cutoff", "pvalue_lt ranking")
-    if (settings$pvalue_cutoff <= 0 || settings$pvalue_cutoff > 1) abort("Invalid ranking pvalue cutoff.")
-    keep <- keep & !is.na(result$pvalue) & result$pvalue < settings$pvalue_cutoff
-  }
-  r <- result[keep, , drop = FALSE]
-  ids <- r$gene_id
-  if (target == "entrez_id") {
-    if (is.null(mapping)) abort("KEGG ranking requires an explicit gene mapping snapshot.")
-    ids <- mapping$entrez_id[match(r$gene_id, mapping$gene_id)]
-  }
-  valid <- !is.na(ids) & !ids %in% c("", ".", "NA")
-  dropped_mapping <- sum(!valid)
-  ids <- ids[valid]
-  values <- r[[settings$metric]][valid]
-  if (anyDuplicated(ids) && settings$duplicate_rank_ids == "error") abort("Duplicate GSEA ranking identifiers after mapping.")
-  keep_unique <- !duplicated(ids)
-  ranking <- values[keep_unique]
-  names(ranking) <- ids[keep_unique]
-  ranking <- ranking[order(-ranking, seq_along(ranking))]
-  if (length(ranking) < 2L) abort("Too few finite, mapped genes for GSEA.")
-  attr(ranking, "mapping_dropped") <- dropped_mapping
-  attr(ranking, "duplicate_ids_dropped") <- sum(!keep_unique)
-  ranking
-}
-
-validate_gsea <- function(root, g) {
-  required(g, "enabled", "GSEA")
-  if (!is.logical(g$enabled) || length(g$enabled) != 1L) abort("gsea.enabled must be logical.")
-  if (!g$enabled) return(character())
-  required(g, c("ranking", "go", "kegg"), "GSEA")
-  inputs <- character()
-  for (kind in c("go", "kegg")) {
-    part <- g[[kind]]
-    required(part, c("engine", "reference_label", "parameters"), paste("GSEA", kind))
-    choose(part$engine, c("source_api", "local_term2gene"), paste(kind, "engine"))
-    required(part$parameters, c("minGSSize", "maxGSSize", "pvalueCutoff", "pAdjustMethod", "exponent", "eps", "seed"), paste(kind, "parameters"))
-    choose(part$parameters$pAdjustMethod, stats::p.adjust.methods, paste(kind, "pAdjustMethod"))
-    if (part$parameters$minGSSize < 1 || part$parameters$maxGSSize < part$parameters$minGSSize ||
-        part$parameters$pvalueCutoff <= 0 || part$parameters$pvalueCutoff > 1 || part$parameters$eps < 0 || part$parameters$exponent < 0) abort("Invalid GSEA parameters.")
-    if (part$engine == "local_term2gene") {
-      required(part, c("term2gene", "term2name"), paste(kind, "local reference"))
-      inputs[paste0(kind, "_term2gene")] <- repo_path(root, part$term2gene)
-      inputs[paste0(kind, "_term2name")] <- repo_path(root, part$term2name)
-    } else if (kind == "go") required(part, c("orgdb", "ontology", "key_type"), "GO source API") else
-      required(part, c("organism", "key_type", "use_internal_data"), "KEGG source API")
-  }
-  need_packages("clusterProfiler")
-  inputs
-}
-
-gsea_one <- function(kind, ranking, part, inputs) {
-  args <- part$parameters
-  args$geneList <- ranking
-  args$verbose <- FALSE
-  if (part$engine == "local_term2gene") {
-    t2g <- read_tsv(inputs[paste0(kind, "_term2gene")])
-    t2n <- read_tsv(inputs[paste0(kind, "_term2name")])
-    columns(t2g, c("term_id", "gene_id"), "TERM2GENE")
-    columns(t2n, c("term_id", "description"), "TERM2NAME")
-    if (anyNA(t2g$term_id) || anyNA(t2g$gene_id) || any(!nzchar(t2g$term_id)) || any(!nzchar(t2g$gene_id))) abort("TERM2GENE contains missing identifiers.")
-    unique_key(t2n$term_id, "TERM2NAME term_id")
-    if (anyDuplicated(paste(t2g$term_id, t2g$gene_id))) abort("TERM2GENE contains duplicate term/gene pairs.")
-    if (!all(t2g$term_id %in% t2n$term_id)) abort("TERM2NAME must describe every supplied gene set.")
-    args$TERM2GENE <- t2g[, c("term_id", "gene_id")]
-    args$TERM2NAME <- t2n[, c("term_id", "description")]
-    answer <- do.call(clusterProfiler::GSEA, args)
-  } else if (kind == "go") {
-    need_packages(part$orgdb)
-    args$OrgDb <- get(part$orgdb, asNamespace(part$orgdb))
-    args$ont <- part$ontology
-    args$keyType <- part$key_type
-    answer <- do.call(clusterProfiler::gseGO, args)
-  } else {
-    args$organism <- part$organism
-    args$keyType <- part$key_type
-    args$use_internal_data <- part$use_internal_data
-    answer <- do.call(clusterProfiler::gseKEGG, args)
-  }
-  if (is.null(answer)) abort("GSEA returned NULL; no result object was produced.")
-  as.data.frame(answer)
-}
-
-validate_wts_config <- function(root, cfg) {
-  required(cfg, c("counts", "metadata", "input_scale", "gene_id_policy", "duplicate_gene_policy",
-    "fit_scope", "comparisons", "prefilter", "deseq", "results", "deg", "gsea", "mapping_duplicate_policy", "annotation_label"), "WTS configuration")
-  choose(cfg$input_scale, "raw_integer_counts", "input_scale")
-  if (!"count_annotation_columns" %in% names(cfg)) abort("Specify count_annotation_columns, using [] when there are none.")
-  choose(cfg$fit_scope, c("per_comparison", "all_included"), "fit_scope")
-  if (!is.list(cfg$comparisons) || !length(cfg$comparisons)) abort("At least one fully specified comparison is required.")
-  ids <- vapply(cfg$comparisons, function(c) { required(c, c("id", "design", "model_kind", "factor", "numerator", "denominator", "reference_levels", "repeated_patients"), "comparison")
-  c$id }, character(1))
-  unique_key(ids, "Comparison id")
-  required(cfg$prefilter, "mode", "Count prefilter")
-  choose(cfg$prefilter$mode, c("remove_all_zero", "sum_at_least"), "prefilter.mode")
-  if (cfg$prefilter$mode == "sum_at_least") required(cfg$prefilter, "minimum", "Count prefilter")
-  required(cfg$deseq, c("test", "fitType", "sfType", "minReplicatesForReplace"), "DESeq settings")
-  choose(cfg$deseq$test, "Wald", "test")
-  choose(cfg$deseq$fitType, c("parametric", "local", "mean"), "fitType")
-  choose(cfg$deseq$sfType, c("ratio", "poscounts", "iterate"), "sfType")
-  required(cfg$results, c("alpha", "pAdjustMethod", "independentFiltering", "cooksCutoff"), "results settings")
-  required(cfg$deg, c("padj_cutoff", "abs_log2fc_cutoff"), "DEG selection")
-  if (cfg$results$alpha <= 0 || cfg$results$alpha >= 1 || cfg$deg$padj_cutoff <= 0 || cfg$deg$padj_cutoff >= 1 || cfg$deg$abs_log2fc_cutoff < 0) abort("Invalid DEG/alpha settings.")
-  choose(cfg$results$pAdjustMethod, stats::p.adjust.methods, "DESeq pAdjustMethod")
-  paths <- c(counts = repo_path(root, cfg$counts), metadata = repo_path(root, cfg$metadata))
-  if (!is.null(cfg$gene_mapping)) paths <- c(paths, gene_mapping = repo_path(root, cfg$gene_mapping))
-  paths <- c(paths, validate_gsea(root, cfg$gsea))
-  if (cfg$gsea$enabled && !"gene_mapping" %in% names(paths)) abort("Enabled KEGG GSEA requires a mapping snapshot.")
-  need_packages("DESeq2")
-  paths
-}
-
-# Packages ----
-SET$module<-"WTS"
-if (is.null(SET$purpose)) SET$purpose<-"analysis"
-if (is.null(SET$method_status)) SET$method_status<-"exploratory"
-SET$run_id<-Run.ID
-SET$output_dir<-Output.folder
-validate_settings(SET)
-Input.files<-validate_wts_config(Project.dir, SET)
-need_packages(c("jsonlite", "digest", "dplyr"))
-suppressPackageStartupMessages(library(dplyr))
-Run<-new_run(Project.dir, SET, Input.files)
-OUT<-Run$directory
-
-# Analysis ----
-tryCatch({
-   # Count and sample information
-   MET<-read_tsv(Input.files["metadata"])
-   validate_wts_metadata(MET)
-   CNT<-read_counts(Input.files["counts"], MET, unlist(SET$count_annotation_columns), SET$gene_id_policy, SET$duplicate_gene_policy)
-   MET<-MET[MET$include == "TRUE", , drop = FALSE]
-   CNT<-CNT[, MET$sample_id, drop = FALSE]
-   if (!nrow(MET)) abort("No included WTS samples.")
-   TRANSFORM<-if ("gene_mapping" %in% names(Input.files)) read_gene_mapping(Input.files["gene_mapping"], SET$gene_id_policy, SET$mapping_duplicate_policy) else NULL
-   VAR<-SET$comparisons
-
-   if (SET$fit_scope == "all_included") {
-      signature<-function(x) x[c("design", "model_kind", "factor", "reference_levels", "numeric_covariates", "repeated_patients", "unpaired_rationale")]
-      if (!all(vapply(VAR, function(x) identical(signature(x), signature(VAR[[1]])), logical(1)))) {
-         abort("all_included requires the same model and factor/reference configuration for every contrast.")
+      if (any(grepl("\\.",ENSG))) {
+         ensg_id <- ENSG%>%
+            str_replace(pattern = "\\.",replacement = "," )%>%
+            str_split(pattern = ",",simplify = TRUE) %>%
+            as.data.frame()
+         ENSG <- ensg_id$V1
       }
-      for (var in VAR) prepare_model(MET, var)
+      SYM<-left_join(ENSG2SYM(ENSG,"AnnotationDbi"),
+                     ENSG2SYM(ENSG,"biomaRt"),
+                     by="ensembl_gene_id",multiple="all")
+      SYM$hgnc_symbol_bio[which(SYM$hgnc_symbol_bio=="")]<-NA
+      SYM<-SYM%>%
+         mutate(integrated=ifelse(is.na(hgnc_symbol_bio)&is.na(hgnc_symbol_Ann),ensembl_gene_id,
+                                  ifelse(!is.na(hgnc_symbol_bio)&is.na(hgnc_symbol_Ann),hgnc_symbol_bio,
+                                         ifelse(is.na(hgnc_symbol_bio)&!is.na(hgnc_symbol_Ann),hgnc_symbol_Ann,
+                                                ifelse(hgnc_symbol_Ann==hgnc_symbol_bio,hgnc_symbol_bio,hgnc_symbol_bio)))))
+      SYM<-SYM[!duplicated(SYM$ensembl_gene_id),]
+      SYM<-SYM %>%
+         mutate(integrated=ifelse(duplicated(SYM[,4]),integrated,ensembl_gene_id))
+      colnames(SYM)<-c("ensembl_gene_id", "hgnc_symbol_AnnotationDbi", "hgnc_symbol_biomaRt", "integrated")
+      return(SYM)
+   }
+   if (method=="biomaRt") {
+      library(biomaRt)
+      library(stringr)
+
+      if (any(grepl("\\.",ENSG))) {
+         ensg_id <- ENSG%>%
+            str_replace(pattern = "\\.",replacement = "," )%>%
+            str_split(pattern = ",",simplify = TRUE) %>%
+            as.data.frame()
+         ENSG <- ensg_id$V1
+      }
+      SYM <- getBM(filters="ensembl_gene_id",
+                   attributes=c("ensembl_gene_id","hgnc_symbol"),
+                   values=ENSG,
+                   mart= mart, # loaded biomaRt data
+                   useCache = FALSE)
+      colnames(SYM)<-c("ensembl_gene_id","hgnc_symbol_biomaRt")
+      return(SYM)
+   }
+   if (method=="AnnotationDbi"){
+      library(AnnotationDbi)
+      library(org.Hs.eg.db)
+
+      SYM<-data.frame(ensembl_gene_id=ENSG,
+                      hgnc_symbol_Ann=mapIds(org.Hs.eg.db,
+                                             keys=ENSG,
+                                             column="SYMBOL",
+                                             keytype="ENSEMBL",
+                                             multiVals="first"),row.names = NULL)
+      return(SYM)
+   }
+}
+
+
+mart=useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl",mirror="useast")
+TRANSFORM=ENSG2SYM(rownames(TPM),integrated = TRUE)
+
+tmp=cbind(TPM,symbol=TRANSFORM[,3])%>%
+   filter(!is.na(symbol))%>%
+   filter(!duplicated(symbol))
+rownames(tmp)=tmp$symbol
+TPM=tmp[,-c(length(tmp))]
+
+tmp=cbind(CNT,symbol=TRANSFORM[,3])%>%
+   filter(!is.na(symbol))%>%
+   filter(!duplicated(symbol))
+rownames(tmp)=tmp$symbol
+CNT=tmp[,-c(length(tmp))]
+
+TPM_log = mutate_all(TPM, function(x) log2(x+1))
+
+#┌──────────────────────────────────┐
+#│ [05] PCA Plot                    │----
+#└──────────────────────────────────┘
+pcr=prcomp(t(TPM))
+obj=pcr$x%>%
+   as.data.frame()
+obj=obj%>%
+   mutate(ID=Group$ID[match(rownames(obj),Group$Name)],
+          Name=Group$Name[match(rownames(obj),Group$Name)],
+          Type=Group$Type[match(rownames(obj),Group$Name)])
+tmp=summary(pcr)
+tmp=tmp$importance%>%as.data.frame
+
+obj%>%
+   ggplot(aes(PC1,PC2,color=Type))+
+   geom_point()+
+   theme_minimal()+
+   xlab(paste0("PC1(",tmp$PC1[2]*100,"%)"))+
+   ylab(paste0("PC2(",tmp$PC2[2]*100,"%)"))+
+   stat_ellipse()
+obj%>%
+   ggplot(aes(PC1,PC2,color=Type))+
+   geom_text(aes(label=Name))+
+   theme_minimal()+
+   xlab(paste0("PC1(",tmp$PC1[2]*100,"%)"))+
+   ylab(paste0("PC2(",tmp$PC2[2]*100,"%)"))+
+   stat_ellipse()
+
+rm(pcr,tmp,obj)
+#png("Plot/PCA_TPM_point.png",width = 600,height = 500)
+#dev.off()
+
+#┌──────────────────────────────────┐
+#│ [06] Function call               │----
+#└──────────────────────────────────┘
+dir.create("Table/Final2",recursive=T,showWarnings=F)
+dir.create("Plot/Final2",recursive=T,showWarnings=F)
+
+#  [function] DEG GSEA
+degsea= function(Count_table=NULL,
+                 Metadata=NULL,
+                 Contrast_vector=NULL,
+                 p.adjust.methods="BH",
+                 cols=c("up" = "#ffad73", "down" = "#26b3ff", "ns" = "grey"),
+                 sizes=c("up" = 2, "down" = 2, "ns" = 1),
+                 alphas=c("up" = 1, "down" = 1, "ns" = 0.5),
+                 Explanation="",
+                 GSEA_GO_ont="BP",
+                 paired=FALSE,
+                 PATH=NULL,
+                 H=TRUE
+){
+   pre=Count_table[,c(colnames(Count_table)%in%Metadata$Name)]
+   pre=mutate_all(pre, function(x) as.integer(x))
+   # pre = pre[-which(rowSums(pre) == 0), ]
+   pre=pre[matrixStats::rowMedians(pre%>%as.matrix()) >= 10,,drop=F]
+
+   #aaaaaaaaaaaaaaaaaaaaaaa
+   Metadata=Metadata[order(Metadata$Name),]
+   pre=pre[,order(colnames(pre))]
+   #aaaaaaaaaaaaaaaaaaaaaaa
+
+   if (paired) {
+      med=DESeqDataSetFromMatrix(countData = pre, colData = Metadata, design = ~ ID + Type, tidy = F)
+   } else {
+      med=DESeqDataSetFromMatrix(countData = pre, colData = Metadata, design = ~ Type, tidy = F)
    }
 
-   # DESeq2
-   obj<-NULL
-   totals<-list()
-   for (i in seq_along(VAR)) {
-      var<-VAR[[i]]
-      subdir<-file.path(OUT, var$id)
-      dir.create(subdir)
 
-      if (SET$fit_scope == "per_comparison" || is.null(obj)) {
-         des<-if (SET$fit_scope == "per_comparison") MET[MET[[var$factor]] %in% c(var$numerator, var$denominator), , drop = FALSE] else MET
-         MODEL<-prepare_model(des, var)
-         des<-MODEL$metadata
-         pre<-CNT[, des$sample_id, drop = FALSE]
-         keep<-if (SET$prefilter$mode == "remove_all_zero") rowSums(pre) > 0 else rowSums(pre) >= SET$prefilter$minimum
-         if (!any(keep)) abort("No genes pass the configured count filter.")
-         pre<-pre[keep, , drop = FALSE]
-         if (any(colSums(pre) == 0)) abort("An included sample has zero library size after filtering.")
+   obj=DESeq(med,quiet = T)
 
-         med<-DESeq2::DESeqDataSetFromMatrix(countData = pre, colData = des, design = MODEL$formula)
-         obj<-quiet_value(DESeq2::DESeq(med, test = SET$deseq$test, fitType = SET$deseq$fitType,
-            sfType = SET$deseq$sfType, minReplicatesForReplace = SET$deseq$minReplicatesForReplace,
-            quiet = TRUE, parallel = FALSE))
-      }
+   res=results(obj,contrast = c("Type",Contrast_vector),pAdjustMethod = "fdr")
+   res = res[order(res$padj),]
 
-      args<-SET$results
-      args$object<-obj
-      args$contrast<-c(var$factor, var$numerator, var$denominator)
-      res<-do.call(DESeq2::results, args)
-      wrt<-res %>% as.data.frame()
-      wrt$gene_id<-rownames(wrt)
-      wrt$GENE<-wrt$gene_id
-      if (!is.null(TRANSFORM)) {
-         match_id<-match(wrt$gene_id, TRANSFORM$gene_id)
-         symbol<-TRANSFORM$symbol[match_id]
-         valid<-!is.na(symbol) & !symbol %in% c("", ".", "NA")
-         wrt$GENE[valid]<-symbol[valid]
-      }
-      wrt<-wrt[, c("gene_id", "GENE", setdiff(names(wrt), c("gene_id", "GENE"))), drop = FALSE]
+   wrt=res%>%as.data.frame()
+   wrt=wrt%>%mutate(GENE=rownames(wrt),.before=baseMean)
+   #write.table(wrt,paste0("Table/",PATH,"/DEG_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".DEG.results.tsv"),sep="\t",quote = F,row.names=F)
+   writexl::write_xlsx(wrt,paste0("Table/",PATH,"/DEG_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".DEG.results.xlsx"))
 
-      # Upregulated / downregulated genes
-      cut<-wrt %>%
-         mutate(gene_type = case_when(
-            log2FoldChange >= SET$deg$abs_log2fc_cutoff & padj <= SET$deg$padj_cutoff ~ "up",
-            log2FoldChange <= -SET$deg$abs_log2fc_cutoff & padj <= SET$deg$padj_cutoff ~ "down",
-            TRUE ~ "ns"))
-      UP<-cut %>% filter(gene_type == "up")
-      DOWN<-cut %>% filter(gene_type == "down")
-      significant<-cut$gene_type != "ns"
+   cut=res%>%as.data.frame()%>%
+      mutate(gene_type = case_when(log2FoldChange >= 1 & pvalue <= 0.05 ~ "up",
+                                   log2FoldChange <= -1 & pvalue <= 0.05 ~ "down",
+                                   TRUE ~ "ns"))
+   UP=cut%>%filter(gene_type=="up")
+   UP=UP%>%mutate(GENE=rownames(UP),.before=baseMean)
+   DOWN=cut%>%filter(gene_type=="down")
+   DOWN=DOWN%>%mutate(GENE=rownames(DOWN),.before=baseMean)
 
-      write_tsv(wrt, file.path(subdir, "DEG_all.tsv"))
-      write_tsv(wrt[significant, , drop = FALSE], file.path(subdir, "DEG_selected.tsv"))
-      write_tsv(UP, file.path(subdir, "DEG_upregulated.tsv"))
-      write_tsv(DOWN, file.path(subdir, "DEG_downregulated.tsv"))
-      write_tsv(des, file.path(subdir, "metadata_used.tsv"))
-      write_tsv(data.frame(sample_id = rownames(MODEL$matrix), MODEL$matrix, check.names = FALSE), file.path(subdir, "design_matrix.tsv"))
-      saveRDS(obj, file.path(subdir, "deseq_dataset.rds"))
-      jsonlite::write_json(list(factor = var$factor, numerator = var$numerator, denominator = var$denominator,
-         log2FoldChange = "log2(numerator / denominator)", design = var$design, model_kind = var$model_kind,
-         fit_scope = SET$fit_scope, reference_levels = var$reference_levels),
-         file.path(subdir, "contrast_used.json"), pretty = TRUE, auto_unbox = TRUE)
+   # Volcano plots
+   cut=cut%>%
+      mutate(gene=rownames(cut))
+   cut2=cut%>%
+      filter(!is.na(padj))
+   tmp=cut2%>%
+      ggplot(aes(x = log2FoldChange,
+                 y = -log10(padj),
+                 fill = gene_type,
+                 size = gene_type,
+                 alpha = gene_type)) +
+      geom_point(shape = 21,
+                 colour = "black") + # Specify shape and colour as fixed local parameters
+      geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+      geom_vline(xintercept = c(log2(0.5), log2(2)), linetype = "dashed") +
+      theme_bw() +
+      geom_text_repel(data=head(cut2, 100), aes(label=gene),max.overlaps = Inf)+
+      scale_fill_manual(values = cols) + # Modify point colour
+      scale_size_manual(values = sizes) + # Modify point size
+      scale_alpha_manual(values = alphas) # Modify point transparency
+   tmp
+   ggsave(plot = tmp,filename = paste0("Plot/",PATH,"/Volcano_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".png"),
+          device = "png",
+          dpi = 640,
+          width = 12,
+          height = 12)
 
-      # GSEA: GO / KEGG
-      gsea_status<-"DISABLED_BY_EXPLICIT_CONFIGURATION"
-      if (SET$gsea$enabled) {
-         for (kind in c("go", "kegg")) {
-            gnl<-make_ranking(cut, SET$gsea$ranking, TRANSFORM, if (kind == "kegg") "entrez_id" else "gene_id")
-            write_tsv(data.frame(gene_id = names(gnl), ranking = as.numeric(gnl)), file.path(subdir, paste0(kind, "_ranking.tsv")))
-            if (kind == "go") {
-               gse<-quiet_value(gsea_one(kind, gnl, SET$gsea[[kind]], Input.files))
-               write_tsv(gse, file.path(subdir, "GO_GSEA.tsv"))
-            } else {
-               kk2<-quiet_value(gsea_one(kind, gnl, SET$gsea[[kind]], Input.files))
-               write_tsv(kk2, file.path(subdir, "KEGG_GSEA.tsv"))
-            }
-            jsonlite::write_json(list(reference_label = SET$gsea[[kind]]$reference_label,
-               engine = SET$gsea[[kind]]$engine, mapped_genes = length(gnl), mapping_dropped = attr(gnl, "mapping_dropped"),
-               duplicate_ids_dropped = attr(gnl, "duplicate_ids_dropped"), tied_statistics = sum(duplicated(as.numeric(gnl)))),
-               file.path(subdir, paste0(kind, "_reference_and_ranking.json")), pretty = TRUE, auto_unbox = TRUE)
-         }
-         gsea_status<-"COMPLETED_WITH_CONFIGURED_REFERENCES"
-      }
-      totals[[var$id]]<-list(tested_rows = nrow(wrt), selected_rows = sum(significant), fit_samples = nrow(des), gsea = gsea_status)
+   # GSEA(Gene Set Enrichment Analysis) : Ontology
+   gnl = cut$log2FoldChange
+   names(gnl) = rownames(cut)
+   gnl=na.omit(gnl)
+   gnl = sort(gnl, decreasing = TRUE)
+   gnl2=data.frame(gnl)%>%mutate(rank=rank(gnl,ties.method = "random"))%>%arrange()
+   gnl=as.vector(gnl2$rank)
+   names(gnl)=rownames(gnl2)
+   gnl = sort(gnl, decreasing = TRUE)
+
+   gse = gseGO(geneList=gnl,
+               ont = "BP", #ALL
+               keyType = "SYMBOL",
+               #nPerm = 10000,
+               minGSSize = 3,
+               #maxGSSize = 800,
+               pvalueCutoff = 0.05,
+               verbose = TRUE,
+               OrgDb = org.Hs.eg.db,
+               pAdjustMethod = p.adjust.methods,
+               scoreType="pos",
+               eps=0)
+   enrichplot::dotplot(gse, showCategory=15, split=".sign") + facet_grid(.~.sign)
+   ggsave(paste0("Plot/",PATH,"/GSEA_GO_","BP","_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".png"),
+          device = "png",
+          dpi = "retina",
+          width = 12,
+          height = 17)
+   gse = gseGO(geneList=gnl,
+               ont = "ALL", #ALL
+               keyType = "SYMBOL",
+               #nPerm = 10000,
+               minGSSize = 3,
+               #maxGSSize = 800,
+               pvalueCutoff = 0.05,
+               verbose = TRUE,
+               OrgDb = org.Hs.eg.db,
+               pAdjustMethod = p.adjust.methods,
+               scoreType="pos",
+               eps=0)
+   enrichplot::dotplot(gse, showCategory=15, split=".sign") + facet_grid(.~.sign)
+   ggsave(paste0("Plot/",PATH,"/GSEA_GO_","ALL","_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".png"),
+          device = "png",
+          dpi = "retina",
+          width = 12,
+          height = 17)
+   #write.table(gse@result, file=paste0("Table/",PATH,"/GSEA_GO","_",GSEA_GO_ont,"_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".tsv"),sep="\t",row.names = F)
+   writexl::write_xlsx(gse@result,paste0("Table/",PATH,"/GSEA_GO","_",GSEA_GO_ont,"_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".xlsx"))
+
+   # GSEA(Gene Set Enrichment Analysis) : KEGG pathway
+   cut2=cut[-which(is.na(match(rownames(cut),mappedkeys(org.Hs.egSYMBOL2EG)))),]
+   ids=bitr(rownames(cut2), fromType = "SYMBOL", toType = "ENTREZID", OrgDb=org.Hs.eg.db)
+   #ids=select(org.Hs.eg.db,keys=rownames(cut2),columns = c("ENTREZID","SYMBOL"),keytype = "SYMBOL")
+   dedup_ids = ids[!duplicated(ids[c("SYMBOL")]),]
+   kegg_gene_list = cut$log2FoldChange
+   kegg_gene_list = kegg_gene_list[match(dedup_ids$SYMBOL,rownames(cut))]
+   names(kegg_gene_list) = dedup_ids$ENTREZID
+   kegg_gene_list=na.omit(kegg_gene_list)
+   kegg_gene_list=sort(kegg_gene_list, decreasing = TRUE)
+
+   kk2 = gseKEGG(geneList     = kegg_gene_list,
+                 organism     = "hsa",
+                 #nPerm        = 10000,
+                 minGSSize    = 3, # 3
+                 #maxGSSize    = 800,
+                 pvalueCutoff = 0.05,
+                 verbose = TRUE,
+                 pAdjustMethod= p.adjust.methods,
+                 keyType      = "ncbi-geneid")
+   #write.table(kk2@result, file=paste0("Table/",PATH,"/GSEA_KEGG","_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".tsv"),sep="\t",row.names = F)
+   writexl::write_xlsx(kk2@result,paste0("Table/",PATH,"/GSEA_KEGG","_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".xlsx"))
+
+   enrichplot::dotplot(kk2, showCategory = 15, title = "Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+   ggsave(paste0("Plot/",PATH,"/GSEA_KEGG_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".png"),
+          device = "png",
+          dpi = "retina",
+          width = 12,
+          height = 17)
+   emapplot(pairwise_termsim(kk2))
+   ggsave(paste0("Plot/",PATH,"/GSEA_emapplot_KEGG_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".png"),
+          device = "png",
+          dpi = "retina",
+          width = 12,
+          height = 12)
+
+   if (H) {
+      # GSEA(Gene Set Enrichment Analysis) : MsigDB Hallmark genes
+      msigdbr.H=msigdb%>%
+         as.data.frame()%>%
+         filter(gs_cat=="H")%>%
+         dplyr::select(gs_name,human_gene_symbol)
+      msd=GSEA(gnl,TERM2GENE = msigdbr.H,scoreType="pos",eps=0)
+      enrichplot::dotplot(msd, showCategory = 15, title = "Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+      ggsave(paste0("Plot/",PATH,"/GSEA_MSigDB.H_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".png"),
+             device = "png",
+             dpi = "retina",
+             width = 12,
+             height = 17)
+      #write.table(msd@result, file=paste0("Table/",PATH,"/GSEA_MSigDB.H_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".tsv"),sep="\t",row.names = F)
+      writexl::write_xlsx(msd@result,paste0("Table/",PATH,"/GSEA_MSigDB.H_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2],".xlsx"))
+
+      assign(paste0("Result_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2]),mget(c("pre","res","obj","med","wrt","cut","UP","DOWN","gse","kk2","msd")),envir = environment())
+   } else {
+      assign(paste0("Result_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2]),mget(c("pre","res","obj","med","wrt","cut","UP","DOWN","gse","kk2")),envir = environment())
    }
-   Details<-list(comparisons = totals, annotation_label = SET$annotation_label, original_environment = "UNKNOWN")
-   finish_run(Run, "COMPLETED", Details)
-}, error = function(e) {
-   finish_run(Run, "FAILED", list(error = conditionMessage(e)))
-   stop(e)
-})
+
+   return(eval(parse(text=paste0("Result_",Explanation,"_",Contrast_vector[1],"_",Contrast_vector[2]))))
+}
+pheatcustom=function(
+      degsea_result,
+      all_samples=F,
+      gene_count=40
+){
+   Genelist=degsea_result$cut$gene[1:gene_count]
+   if (all_samples) {
+      tmp=colnames(TPM_log)
+      obj=as.data.frame(t(apply(TPM_log,1,scale))); colnames(obj)=tmp
+
+      pheatmap(obj[Genelist,rownames(col_ann)],
+               cluster_rows = T,
+               cluster_cols = F,
+               annotation_col=col_ann,
+               legend_breaks = c(-range:range),
+               breaks=seq(-range,range,length.out=11),
+               color=col2(11),
+               scale = "none")
+   } else {
+      tmp=colnames(TPM_log)
+      Genelist=degsea_result$cut$gene[1:gene_count]
+      obj=TPM_log[,Metadata$Name]
+      tmp=colnames(obj)
+      obj=as.data.frame(t(apply(obj,1,scale))); colnames(obj)=tmp
+      anno=col_ann%>%filter(Type%in%Metadata$Type)
+
+      pheatmap(obj[Genelist,rownames(anno)],
+               cluster_rows = T,
+               cluster_cols = F,
+               annotation_col=anno,
+               legend_breaks = c(-range:range),
+               breaks=seq(-range,range,length.out=11),
+               color=col2(11),
+               scale = "none",
+               cellwidth=10,
+               cellheight=10)
+   }
+}
+
+
+#┌──────────────────────────────────┐
+#│ [07] PNormal vs NNormal          │----
+#└──────────────────────────────────┘
+Metadata=Group%>%filter(Type%in%c("PNormal","NNormal"))
+Metadata
+table(Metadata$HP,Metadata$Type)
+PNormal__NNormal=degsea(Count_table = CNT, Metadata = Metadata,
+                        Contrast_vector = c("PNormal","NNormal"),
+                        paired = F,
+                        GSEA_GO_ont = "ALL",
+                        PATH = "Final2")
+pheatcustom(PNormal__NNormal,all_samples = F)
+pheatcustom(PNormal__NNormal,all_samples = T)
+
+# tmp<-getwd()
+# setwd("Plot/Final2/pathview/PTumor_PNormal/")
+# pathlist <- c("hsa04640")
+# pathview(gene.data = PTumor__PNormal$kk2@geneList,
+#          pathway.id = pathlist,
+#          species = "hsa")
+# for (i in pathlist) {
+#    file.remove(paste0(i,".png"))
+#    file.remove(paste0(i,".xml"))
+# }
+# setwd(tmp)
+
+#┌──────────────────────────────────┐
+#│ [08] PTumor vs PNormal           │----
+#└──────────────────────────────────┘
+Metadata=Group%>%filter(Type%in%c("PTumor","PNormal"))
+Metadata
+table(Metadata$HP,Metadata$Type)
+PTumor__PNormal=degsea(Count_table = CNT, Metadata = Metadata,
+                       Contrast_vector = c("PTumor","PNormal"),paired = T,
+                       GSEA_GO_ont = "ALL",
+                       PATH = "Final2")
+pheatcustom(PTumor__PNormal,all_samples = F)
+pheatcustom(PTumor__PNormal,all_samples = T)
+
+#┌──────────────────────────────────┐
+#│ [09] PTumor vs NTumor            │----
+#└──────────────────────────────────┘
+Metadata=Group%>%filter(Type%in%c("PTumor","NTumor"))
+Metadata
+table(Metadata$HP,Metadata$Type)
+PTumor__NTumor=degsea(Count_table = CNT, Metadata = Metadata,
+                      Contrast_vector = c("PTumor","NTumor"),
+                      paired = F,
+                      GSEA_GO_ont = "ALL",
+                      PATH = "Final2")
+pheatcustom(PTumor__NTumor,all_samples = F)
+pheatcustom(PTumor__NTumor,all_samples = T)
+
+## opposite
+# Metadata=Group%>%filter(Type%in%c("NTumor","PTumor"))
+# Metadata
+# table(Metadata$HP,Metadata$Type)
+# NTumor__PTumor=degsea(Count_table = CNT, Metadata = Metadata,
+#                       Contrast_vector = c("NTumor","PTumor"),
+#                       paired = F,
+#                       GSEA_GO_ont = "ALL",
+#                       PATH = "Final2")
+# pheatcustom(NTumor__PTumor,all_samples = F)
+# pheatcustom(NTumor__PTumor,all_samples = T)
+
+
+#┌──────────────────────────────────┐
+#│ [10] NTumor vs NNormal           │----
+#└──────────────────────────────────┘
+Metadata=Group%>%filter(Type%in%c("NTumor","NNormal"))
+Metadata
+table(Metadata$HP,Metadata$Type)
+NTumor__NNormal=degsea(Count_table = CNT, Metadata = Metadata,
+                       Contrast_vector = c("NTumor","NNormal"),
+                       paired = F,
+                       GSEA_GO_ont = "ALL",
+                       PATH = "Final2")
+pheatcustom(NTumor__NNormal,all_samples = F)
+pheatcustom(NTumor__NNormal,all_samples = T)
+
+# Original exploratory code below requires its own inputs and group settings.
+if (FALSE) {
+# Gene fusion vs non
+Metadata=Group%>%dplyr::filter(Type=="NTumor")
+Metadata$Type=c("noGF","noGF","GF","noGF","GF","noGF")
+GF_noGF=degsea(Count_table = CNT, Metadata = Metadata,
+               Contrast_vector = c("GF","noGF"),
+               paired = F,
+               GSEA_GO_ont = "ALL",
+               PATH = "Final2")
+
+
+tmp<-getwd()
+setwd("Plot/Final2/pathview/GF_noGF/")
+pathlist <- c("hsa05160")
+pathview(gene.data = GF_noGF$kk2@geneList,
+         pathway.id = pathlist,
+         species = "hsa")
+for (i in pathlist) {
+   file.remove(paste0(i,".png"))
+   file.remove(paste0(i,".xml"))
+}
+setwd(tmp)
+
+#┌──────────────────────────────────┐
+#│ [11] Gene fusion visualization   │----
+#└──────────────────────────────────┘
+library(chimeraviz)
+
+defuse833ke <- system.file(
+   "extdata",
+   "defuse_833ke_results.filtered.tsv",
+   package="chimeraviz")
+fusions <- import_defuse(defuse833ke, "hg19",1)
+
+
+#┌──────────────────────────────────┐
+#│ [12] DEG_GENE_identification     │----
+#└──────────────────────────────────┘
+pheat_col_ann=col_ann%>%
+   mutate(sample_type=case_when(
+      Type=="NNormal" ~ "Normal",
+      Type=="PNormal" ~ "Normal",
+      Type=="NTumor" ~ "Tumor",
+      Type=="PTumor" ~ "Tumor"
+   ))%>%
+   mutate("H. pylori"=case_when(
+      substr(Type,1,1)=="N" ~ "Negative",
+      substr(Type,1,1)=="P" ~ "Positive"
+   ))%>%
+   dplyr::select("sample_type","H. pylori")
+# Heatmap
+DEG_gene_list=c(
+   head(PNormal__NNormal$cut$gene,10),
+   head(PTumor__PNormal$cut$gene,10),
+   #head(PTumor__NTumor$cut$gene,10),
+   head(NTumor__NNormal$cut$gene,10),
+   c("TNFAIP3","EZH2","MYC","EED","CDT1","RPA1")
+)
+DEG_gene_list=DEG_gene_list[! DEG_gene_list %in% c("IGLV7-46","GPR153","CLCA1","ADA","AQP1")]
+DEG_gene_list=DEG_gene_list[!DEG_gene_list%>%duplicated()]
+
+tmp=colnames(TPM_log)
+obj=as.data.frame(t(apply(TPM_log,1,scale))); colnames(obj)=tmp
+pheatmap(obj[DEG_gene_list,rownames(pheat_col_ann)],
+         cluster_rows = T,
+         cluster_cols = F,
+         annotation_col=pheat_col_ann,
+         legend_breaks = c(-range:range),
+         breaks=seq(-range,range,length.out=14),
+         color=col2(13),
+         scale = "none",
+         cellwidth=20,
+         cellheight=20,
+         angle_col=45
+)
+
+# chronic inflammatory response
+DEG_gene_list=c("CXCL13","SCN11A","ADORA2B","CYP19A1","UNC13D","IL10","IDO1","LTA","FOXP3","S100A8","S100A9","CCL11","NFKBIZ","THBS1","TNF","TNFAIP3","VCAM1","VNN1")
+DEG_gene_list=c("AHCY","BDNF","CCL11","CXCL13","GJA1","IL1RN","IDO1","IL10","S100A9","VCAM1","TNF","THBS1","VNN1","TNFAIP3","NF1","EZH2","MYC","EED")
+pheat_col_ann2=pheat_col_ann%>%filter(!(`sample_type`!="Normal" & `H. pylori`!="Positive"))
+tmp=colnames(TPM_log)
+obj=as.data.frame(t(apply(TPM_log,1,scale))); colnames(obj)=tmp
+pheatmap(obj[DEG_gene_list,rownames(pheat_col_ann2)],
+         cluster_rows = T,
+         cluster_cols = F,
+         annotation_col=pheat_col_ann2,
+         legend_breaks = c(-range:range),
+         breaks=seq(-range,range,length.out=11),
+         color=col2(11),
+         scale = "none",
+         cellwidth=20,
+         cellheight=20,
+         angle_col=45
+)
+
+# Intersection
+intersect(
+   PTumor__NTumor$cut%>%filter(gene_type!="ns")%>%dplyr::select(gene),
+   NTumor__NNormal$cut%>%filter(gene_type!="ns")%>%dplyr::select(gene)
+)
+intersect(
+   PTumor__NTumor$gse@result%>%dplyr::select(Description),
+   PNormal__NNormal$gse@result%>%dplyr::select(Description)
+)
+
+linear_obj=obj[c("NKX6-3","CDT1","RPA1"),]%>%t()%>%as.data.frame()
+lm_fit=lm("NKX6-3" ~ "CDT1", obj=linear_obj)
+#┌──────────────────────────────────┐
+#│ [13] Microbiome detection        │----
+#└──────────────────────────────────┘
+# diversity
+alpha=read.table("bracken/0.05_alpha_diversity.txt",sep="\t",
+                 col.names = c("sample",
+                               "Berger-parker",
+                               "Shannon",
+                               "Fisher_index",
+                               "Simpson_index",
+                               "Simpson_reciprocal_index"))
+alpha=alpha[,c(1,3,5)]
+alpha=alpha%>%
+   mutate(Type=Group$Type[match(alpha$sample,Group$Name)])%>%
+   filter(Type%in%c("PNormal","NNormal","PTumor","NTumor"))
+alpha=alpha%>%melt(id.vars=c("sample","Type"))
+alpha=alpha%>%mutate(Type2=ifelse(substr(Type,1,1)=="P","pos","neg"))
+
+
+my_comparisons=list(
+   c("NNormal","PNormal"),
+   c("NTumor","PTumor"),
+   c("NTumor","NNormal"),
+   c("PTumor","PNormal")
+)
+alpha%>%
+   filter(variable=="Shannon")%>%
+   ggplot(aes(x=Type,y=value,group=Type,color=Type))+
+   geom_boxplot()+
+   theme_bw()+
+   xlab("Sample type") + ylab("Shannon")+
+   geom_jitter()
+
+alpha%>%
+   filter(variable=="Simpson_index")%>%
+   ggplot(aes(x=Type,y=value,group=Type,color=Type))+
+   geom_boxplot()+
+   theme_bw()+
+   xlab("Sample type") + ylab("Simpson_index")+
+   geom_jitter()
+
+alpha%>%
+   filter(variable=="Simpson_index")%>%
+   ggplot(aes(x=Type2,y=value,group=Type2,color=Type2))+
+   geom_boxplot()+
+   theme_bw()+
+   xlab("Sample type") + ylab("Simpson_index")+
+   geom_jitter()
+alpha%>%
+   filter(variable=="Shannon")%>%
+   ggplot(aes(x=Type2,y=value,group=Type2,color=Type2))+
+   geom_boxplot()+
+   theme_bw()+
+   xlab("Sample type") + ylab("Shannon")+
+   geom_jitter()
+
+#┌──────────────────────────────────┐
+#│ [14] Junk                        │----
+#└──────────────────────────────────┘
+
+# differentially expressed microbiome
+cts=read.table("bracken_species_all",row.names=1, sep="\t",header=T,check.names=F)
+cts=cts[,grepl("*_num", names(cts))]
+colnames(cts)=gsub("^Report_|\\.species.bracken_num$|\\.phylum.bracken_num$|.genus.bracken_num$|.bracken_num$","",colnames(cts))
+files_h = list.files(path="k2report/", pattern="*_*", full.names=TRUE, recursive=FALSE)
+transcriptome_size=c()
+for (i in files_h){
+   t=read.table(i,sep="\t", quote= "")
+   total_reads=t[1,2] + t[2,2] #get total reads abundance of a sample
+   fn=gsub("\\.k2report","",basename(i)) #grep the sample name
+   transcriptome_size=c(transcriptome_size,setNames(total_reads,fn)) #add sample name with value to the list lh
+}
+transcriptome_size=data.frame(sample_name=names(transcriptome_size),Size=transcriptome_size)
+coldata=merge(Group2,transcriptome_size,by.x="Name",by.y="sample_name")
+tmp=t(cts)%>%as.data.frame()
+tmp=tmp%>%mutate(`Helicobacter pylori`=`Helicobacter pylori_BU`+`Helicobacter pylori_C`)%>%t()%>%as.data.frame()
+cts=tmp[-match(c("Helicobacter pylori_BU","Helicobacter pylori_C"),rownames(tmp)),]
+
+
+var=c("H.P_neg_GML","H.P_neg_Nor")
+coldata2=coldata[coldata$Type%in%var,]
+cts2=cts[,colnames(cts)%in%coldata2$Name]
+
+
+dds = DESeqDataSetFromMatrix(countData = cts2,
+                             colData = coldata2,
+                             design= ~ Type)
+obj = DESeq(dds)
+
+res=results(obj,contrast=c("Type",var[1],var[2]))
+res = res[order(res$padj),]
+wrt=res%>%as.data.frame()
+wrt=wrt%>%mutate(GENE=rownames(wrt),.before=baseMean)
+cut=res%>%as.data.frame()%>%
+   mutate(gene_type = case_when(log2FoldChange >= 1 & padj <= 0.05 ~ "up",
+                                log2FoldChange <= -1 & padj <= 0.05 ~ "down",
+                                TRUE ~ "ns"))
+UP=cut%>%filter(gene_type=="up")
+UP=UP%>%mutate(GENE=rownames(UP),.before=baseMean)
+DOWN=cut%>%filter(gene_type=="down")
+DOWN=DOWN%>%mutate(GENE=rownames(DOWN),.before=baseMean)
+
+cut=cut%>%
+   mutate(gene=rownames(cut))
+cut%>%
+   ggplot(aes(x = log2FoldChange,
+              y = -log10(padj),
+              fill = gene_type,
+              size = gene_type,
+              alpha = gene_type)) +
+   geom_point(shape = 21,
+              colour = "black") + # Specify shape and colour as fixed local parameters
+   geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+   geom_vline(xintercept = c(log2(0.5), log2(2)), linetype = "dashed") +
+   theme_bw() +
+   geom_text_repel(data=head(cut, 40), aes(label=gene))+
+   scale_fill_manual(values = cols) + # Modify point colour
+   scale_size_manual(values = sizes) + # Modify point size
+   scale_alpha_manual(values = alphas) # Modify point transparency
+ggsave(paste0("Plot/microbiome_test",var[1],var[2],"_.png"),
+       device = "png",
+       dpi = "retina",
+       width = 7,
+       height = 7)
+
+
+
+
+
+
+#stacked bar
+library(forcats)
+
+genus_list=read.table("genuslist.txt")
+genus_list=genus_list[!duplicated(genus_list),]
+genus_list=genus_list[!grepl("\\.",genus_list)]
+
+cts=read.table("bracken/0.05_genus.tsv",row.names=1, sep="\t",header=T,check.names=F)
+cts=cts%>%filter(!grepl("_|MGYG|-|[0-9]",rownames(cts)))
+cts=cts[,-c(1:6,length(cts))]
+
+#colnames(cts)=gsub(".cladeReads$|.cladeReads..$|.cladeReads.z.score$|.cladeReads...z.score$","",colnames(cts))
+colname_pavian_obj=colnames(cts)
+colname_pavian_obj_parsed=paste(substr(colname_pavian_obj,1,9),
+                                rep(c("reads","reads_pct","Zscore","Zscore_pct"),37),
+                                sep = "_" )
+colnames(cts)=colname_pavian_obj_parsed
+rm(colname_pavian_obj,colname_pavian_obj_parsed)
+Reads=cts[,c(grep("reads$",colnames(cts)))]
+Zscore=cts[,c(grep("Zscore$",colnames(cts)))]
+MELT=Reads%>%t()%>%as.data.frame()
+MELT=MELT%>%
+   mutate(sample=rownames(MELT))%>%
+   melt(value.name = "value")
+MELT$sample=substr(MELT$sample,1,9)
+
+MELT=MELT%>%filter(MELT$variable%in%genus_list)
+#MELT=MELT[!grepl("[NT][23].*",MELT$sample),]
+
+MELT=MELT%>%
+   mutate(Type=Group$Type[match(MELT$sample,Group$Name)])
+
+
+MELT=MELT%>%
+   mutate(Type=case_when(
+      Type=="PNormal" ~ "H.P+ Normal",
+      Type=="NNormal" ~ "H.P- Normal",
+      Type=="PTumor" ~ "H.P+ Tumor",
+      Type=="NTumor" ~ "H.P- Tumor"
+      # Type=="Eneg" ~ "H.P- Followup",
+      # Type=="Epos" ~ "H.P+ Followup"
+   )
+   )
+MELT2=MELT[order(MELT$value),]
+MELT2$variable=as.factor(MELT2$variable)
+MELT2%>%
+   ggplot(aes(x=sample,y=value)) +
+   geom_bar(aes(fill=variable),position="fill",stat="identity") +
+   facet_grid(~Type,scales="free_x",space="free_x")+
+   theme_bw()+
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#linear regression?
+alpha=read.table("bracken/0.05_alpha_diversity.txt",sep="\t",
+                 col.names = c("sample",
+                               "Berger-parker",
+                               "Shannon",
+                               "Fisher_index",
+                               "Simpson_index",
+                               "Simpson_reciprocal_index"))
+alpha=alpha[,c(1,3,5)]
+alpha=alpha%>%
+   mutate(Type=Group3$Type[match(alpha$sample,Group$Name)])%>%
+   filter(Type%in%c("Npos","Nneg","Tpos","Tneg","Epos","Eneg"))
+alpha=alpha%>%mutate(Type2=ifelse(substr(Type,2,4)=="pos","pos","neg"))
+
+cts=read.table("bracken/0.05_genus.tsv",row.names=1, sep="\t",header=T,check.names=F)
+cts=cts%>%filter(!grepl("_|MGYG|-|[0-9]",rownames(cts)))
+cts=cts[,-c(1:6,length(cts))]
+
+#colnames(cts)=gsub(".cladeReads$|.cladeReads..$|.cladeReads.z.score$|.cladeReads...z.score$","",colnames(cts))
+colname_pavian_obj=colnames(cts)
+colname_pavian_obj_parsed=paste(substr(colname_pavian_obj,1,9),
+                                rep(c("reads","reads_pct","Zscore","Zscore_pct"),37),
+                                sep = "_" )
+colnames(cts)=colname_pavian_obj_parsed
+rm(colname_pavian_obj,colname_pavian_obj_parsed)
+reads_pct=cts[,c(grep("reads_pct$",colnames(cts)))]%>%t()%>%as.data.frame()
+rownames(reads_pct)=substr(rownames(reads_pct),1,9)
+reads_pct=reads_pct%>%filter(rownames(reads_pct)%in%alpha$sample)
+df=cbind(reads_pct,alpha[,c(2,3)])
+
+df2=df%>%mutate(sample=rownames(df))
+
+df2%>%ggplot(aes(x=Helicobacter,y=Simpson_index))+
+   geom_point()+geom_smooth(method='lm')+ theme_bw()
+res=lm(Simpson_index ~ Helicobacter,data=df2)
+summary(res)
+
+df2%>%ggplot(aes(x=Helicobacter,y=Shannon))+
+   geom_point()+geom_smooth(method='lm')+ theme_bw()
+res=lm(Shannon ~ Helicobacter,data=df2)
+summary(res)
+
+df2%>%ggplot(aes(x=Rothia,y=Simpson_index))+
+   geom_point()+geom_smooth(method='lm')+ theme_bw()
+res=lm(Simpson_index ~ Rothia,data=df2)
+summary(res)
+
+df2%>%ggplot(aes(x=Rothia,y=Shannon))+
+   geom_point()+geom_smooth(method='lm')+ theme_bw()
+res=lm(Shannon ~ Rothia,data=df2)
+summary(res)
+
+res=lm(Shannon ~ Helicobacter + Rothia + Veillonella + Porphyromonas ,data=df2)
+summary(res)
+library(jtools)
+plot_summs(res)
+
+
+
+
+df3=df2[,c(1,3,159,160,161)]%>%mutate(Type=Group3$Type[match(df2$sample,Group$Name)])
+df3[order(df3$Shannon),]%>%filter(Type=="Tpos")
+df3[order(df3$Shannon),]%>%filter(Type=="Tneg")
+df3[order(df3$Shannon),]%>%filter(Type=="Npos")
+df3[order(df3$Shannon),]%>%filter(Type=="Tneg")
+
+
+library(progeny)
+
+
+tmp=PNormal__NNormal$gse@result$core_enrichment[grep("B cell",PNormal__NNormal$gse@result$Description)]
+a=c()
+for (i in length(tmp)) {
+   a=c(a,strsplit(tmp[i],"/")%>%unlist())
+}
+B_cell_genelist=a[!duplicated(a)]
+
+tmp=colnames(TPM_log)
+obj=as.data.frame(t(apply(TPM_log,1,scale))); colnames(obj)=tmp
+pheatmap(obj[B_cell_genelist,rownames(pheat_col_ann)],
+         cluster_rows = T,
+         cluster_cols = F,
+         annotation_col=pheat_col_ann,
+         legend_breaks = c(-range:range),
+         breaks=seq(-range,range,length.out=11),
+         color=col2(11),
+         scale = "none",
+         cellwidth=10,
+         cellheight=10,
+         angle_col=45
+)
+
+#└──────────────────────────────────┘----
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gse = gseGO(geneList=PTumor__PNormal$gse@geneList,
+            ont = "BP", #ALL
+            keyType = "SYMBOL",
+            #nPerm = 10000,
+            minGSSize = 3,
+            #maxGSSize = 800,
+            pvalueCutoff = 0.05,
+            verbose = TRUE,
+            OrgDb = org.Hs.eg.db,
+            pAdjustMethod = p.adjust.methods,
+            scoreType="pos",
+            eps=0
+)
+enrichplot::dotplot(gse, showCategory=30, split=".sign") + facet_grid(.~.sign)
+}

@@ -1,19 +1,17 @@
 # Sequencing analysis of gastric MALT lymphoma
 
-R scripts for downstream WES, WTS and microbiome analyses accompanying the manuscript. `WES.R` follows `Trimmedddd.R`; `WTS.R` retains `ENSG2SYM`, `degsea`, `pheatcustom` and the four original comparison calls from `250326.R`. `Microbiome.R` makes the original genus/diversity/regression analysis independently executable.
+R scripts for downstream whole-exome sequencing (WES), whole-transcriptome sequencing (WTS) and microbiome analyses.
 
-| File | Analysis |
+| File | Description |
 | --- | --- |
-| `WES.R` | ANNOVAR/VEP merge, genotype parsing, somatic variant filtering, MAF and oncoplots |
-| `WTS.R` | Expected-count processing, DESeq2, volcano plots, heatmaps and optional GO/KEGG/Hallmark GSEA |
-| `Microbiome.R` | Genus composition, imported or explicitly recalculated alpha diversity, univariate regressions and the original four-genus Shannon model |
-| `METHODS.md` | Input schemas, retained analysis choices, changes and limitations |
-| `VALIDATION.md` | Checks completed and remaining manuscript-result differences |
-| `examples/` | Artificial data demonstrating the input formats; no study specimens |
+| `WES.R` | ANNOVAR/VEP annotation merge, genotype parsing, variant filtering, MAF conversion and oncoplots |
+| `WTS.R` | DESeq2 comparisons, volcano plots, heatmaps and GO/KEGG enrichment |
+| `Microbiome.R` | Genus composition, alpha diversity and linear regression |
+| `METHODS.md` | Input formats and analysis settings |
 
-## Installation
+## Requirements
 
-Use R with a compatible Bioconductor release. Install packages before running; the analysis scripts do not install or update packages.
+Use R with a compatible Bioconductor release. Install the required packages before running the scripts.
 
 ```r
 install.packages(c("dplyr", "ggplot2", "stringr", "reshape2", "RColorBrewer",
@@ -24,23 +22,21 @@ BiocManager::install(c("S4Vectors", "DESeq2", "maftools", "clusterProfiler",
                       "enrichplot"), update = FALSE, ask = FALSE)
 ```
 
-`dplyr >= 1.1.1` is required for the explicit annotation join. `biomaRt` is needed only if the optional live Ensembl mapping is enabled. A local mapping file is the default.
+`dplyr >= 1.1.1` is required. The optional live Ensembl mapping also requires `biomaRt`. The manuscript lists R 4.2.2 and DESeq2 1.38.3; the versions used for each execution are recorded in its `sessionInfo.txt`.
 
-The manuscript reports R 4.2.2 and DESeq2 1.38.3. The original full environment and database snapshots were not supplied. This revision was checked in R 4.3.3 / DESeq2 1.42.0; those versions describe the new validation environment, not the historical analysis. See `VALIDATION.md` for the checks actually completed.
+## Running the analysis
 
-## Running the scripts
-
-1. Download the repository and set the R working directory to its root.
-2. Prepare the corresponding private input directory below. Edit the named paths/settings at the start of the chosen script where necessary.
+1. Set the R working directory to the repository root.
+2. Prepare the input files listed below and edit `Input.dir` or the named file paths at the beginning of the selected script.
 3. Run `source("WES.R")`, `source("WTS.R")` or `source("Microbiome.R")`.
 
-The equivalent command-line calls are `Rscript WES.R`, `Rscript WTS.R` and `Rscript Microbiome.R`, from the repository directory.
+Alternatively, run `Rscript WES.R`, `Rscript WTS.R` or `Rscript Microbiome.R` from the repository root.
 
-Each script creates `results/<module>/<Run.ID>/`, with a timestamp as the default run ID. An existing run directory stops execution; choose a new `Run.ID` after a failed or completed run. Outputs include the actual input file MD5 hashes, settings, sample selections and `sessionInfo.txt` on successful completion. WTS additionally records gene mappings and comparison metadata/design matrices. There is no separate `SET` configuration object or automatic package installer.
+Each execution writes to `results/<module>/<Run.ID>/`. `Run.ID` defaults to a timestamp. An existing output directory stops execution; select a new run ID to run again. The scripts do not install or update packages during analysis.
 
-## Inputs
+## Input files
 
-Input column names and sample IDs are case-sensitive. Supply tab-delimited files with headers and no row-number column. Study-specific mappings and patient/specimen data are not included in the repository.
+All inputs are tab-delimited text files with headers. Column names and sample identifiers are case-sensitive.
 
 | Directory | Required files |
 | --- | --- |
@@ -48,40 +44,39 @@ Input column names and sample IDs are case-sensitive. Supply tab-delimited files
 | `data/WTS/` | `H.pylori-Gastric_MALToma-WTS-COUNT.tsv`, `H.pylori-Gastric_MALToma-WTS-TPM.tsv`, `grouptable_new.tsv`, `gene_symbols.tsv` |
 | `data/Microbiome/` | `genus_counts.tsv`, `genus_relative_percent.tsv`, `alpha_diversity.tsv`, `grouptable_new.tsv` |
 
-**WES.** `sample_info.tsv` contains `sample_column`, `case_number`, `include_wes` (`TRUE/FALSE`), `hp_status` (`positive/negative/unknown`), and optionally `include_plot` (`TRUE/FALSE`). List the genotype columns to be parsed, including controls marked `include_wes=FALSE`. Included cases require an identifier; a fusion-only plotting case can have an empty `sample_column`. Optional `declared_fusions.tsv` contains `case_number`, `gene_symbol` and, preferably, provenance. Declared fusions are external annotations and are never converted into fictitious SNV/indel calls.
+**WES:** `sample_info.tsv` contains `sample_column`, `case_number`, `include_wes` (`TRUE/FALSE`) and `hp_status` (`positive/negative/unknown`). Optional `include_plot` specifies the plotting cohort. Optional `declared_fusions.tsv` contains `case_number`, `gene_symbol` and provenance for externally determined fusion annotations.
 
-**WTS.** COUNT and TPM retain the source layout: `gene_id`, one empty annotation column, then identical sample columns in identical order. COUNT contains nonnegative RSEM expected counts, not TPM. The original `as.integer` truncation is retained explicitly as `Count.mode="truncate"`; `"integer"` instead requires integer input. This is not a tximport/length-offset workflow. Metadata columns are `Name`, `sample` (`Normal/Tumor/Eradicated`) and `HP` (`positive/negative`). The five-part source name `01-6001-N-WTS-1` maps to metadata name `N1_016001`. `gene_symbols.tsv` contains `gene_id` and `symbol`; document its database, release and download date in `Annotation.label`. See the synthetic files for the exact layout.
+**WTS:** COUNT and TPM use `gene_id`, one empty annotation column, and then the same sample columns in the same order. COUNT contains nonnegative RSEM expected counts. Metadata contains `Name`, `sample` (`Normal/Tumor/Eradicated`) and `HP` (`positive/negative`). For the configured sample-name convention, `01-6001-N-WTS-1` maps to `N1_016001`. `gene_symbols.tsv` contains `gene_id` and `symbol`; record the annotation origin and release in `Annotation.label`.
 
-**Microbiome.** The first column of each matrix is `genus`; subsequent columns are exact metadata sample IDs. Rows are unique genus names, including `Helicobacter`, `Rothia`, `Veillonella` and `Porphyromonas`. The read matrix contains untransformed counts; the relative-abundance matrix contains **percentages from 0 to 100**, with the same genera and samples. An explicit zero is required for a genuinely absent genus. Do not use species-level *H. pylori* rows in place of genus-level *Helicobacter*. `alpha_diversity.tsv` contains `sample`, `Shannon`, `Simpson_index`; `grouptable_new.tsv` uses the WTS metadata schema. Matrix axes and alpha rows can be reordered: alignment is by identifiers.
+**Microbiome:** Each matrix begins with a `genus` column followed by sample columns. The two matrices contain the same genus and sample identifiers. Supply untransformed reads in `genus_counts.tsv` and percentages from 0 to 100 in `genus_relative_percent.tsv`. Include the four genus rows `Helicobacter`, `Rothia`, `Veillonella` and `Porphyromonas`, with explicit zeros for absence. `alpha_diversity.tsv` contains `sample`, `Shannon` and `Simpson_index`; metadata follows the WTS schema. Record the upstream classification database, abundance denominator and diversity-index definition in the input documentation and `Input.description`.
 
-For an original wide Pavian export, explicitly select its genus rows and sample read/percentage columns to prepare these two matrices. Do not infer sample/metric identity from four-column blocks or truncate sample names. Record the taxonomic database, upstream tool/version, confidence setting, abundance denominator, and alpha-diversity calculation/rank in `Input.description` and your data documentation.
+## Analysis settings
 
-## Retained settings and corrections
+WES uses DP >= 50, alternate depth >= 5, strand ratio 0.25–4, VAF >= 0.05 and < 0.40, together with the annotation and COSMIC filters in `WES.R`. `AF.column` selects the population-frequency annotation. The default `AF.cutoff=0.1` is an allele fraction, and missing annotations are retained with `Keep.missing.AF=TRUE`.
 
-- WES retains DP >= 50, alternate depth >= 5, strand ratio 0.25–4, VAF >= 0.05 and < 0.40, and the original annotation/COSMIC/consequence filters. Population AF is compared numerically. `AF.column="AF_eas"` explicitly selects the first duplicated ANNOVAR AF block; the second is `AF_eas_2`. The 0.1 fraction threshold and retention of missing `.` annotations are unchanged. Confirm the database identity/release of the selected block before describing it as a specific gnomAD release.
-- WTS uses `abs(log2FoldChange) >= 1` and `padj <= 0.05` consistently for up/down selection and volcano colors. This corrects the source's use of raw p-values for colors/selection while plotting adjusted p-values. DESeq2 raw p-values and adjusted values are both retained in the output.
-- WTS retains the source exclusion `Exclude.ID=c("10")`, excludes follow-up samples from DEG analysis, and keeps the original comparison models below. The reason for excluding identifier 10 was not supplied; it is not labelled a confirmed QC decision. Patient IDs in source filenames must be reconciled with the manuscript's case IDs privately.
-- Microbiome includes its own supplied samples, including follow-ups. It does not inherit WTS exclusions. Its default regressions use the source's percentage predictor (`Predictor.metric="relative_percent"`), not raw read counts. The manuscript's wording/units require checking against the original microbial data.
+WTS uses `abs(log2FoldChange) >= 1` and `padj <= 0.05` for up/down lists and volcano colors. `Count.mode="truncate"` applies `as.integer` to expected counts; `"integer"` requires integer input. The configured DEG analysis excludes identifier 10 and follow-up specimens; these selections are recorded in `all_sample_metadata.tsv`.
 
-| WTS numerator / denominator | Model |
+| Numerator / denominator | Model |
 | --- | --- |
 | PNormal / NNormal | `~ Type` |
 | PTumor / PNormal | `~ ID + Type` |
 | PTumor / NTumor | `~ Type` |
 | NTumor / NNormal | `~ Type` |
 
-`Run.GSEA=TRUE` runs GO and KEGG. GO retains the original positive LFC-rank score with seeded random ties and `scoreType="pos"`; KEGG retains signed LFC scores. These source choices are documented, not replaced with a new enrichment method. The source seed 48575 is reset before each comparison's GSEA so optional plots do not alter random draws; the backend is serial. Local references can be reused with `Use.reference.cache=TRUE`; see METHODS.md. `Run.Hallmark=FALSE` by default; enabling the retained optional Hallmark calculation requires a named local `hallmark_term2gene.tsv` with `gs_name` and `human_gene_symbol`, and its release provenance.
+`Run.GSEA=TRUE` runs GO and KEGG enrichment. GO uses positive ranks of LFC with `scoreType="pos"`; KEGG uses signed LFC. The seed is 48575 and the backend is serial. Reference snapshots can be reused with `Use.reference.cache=TRUE`; see METHODS.md. Optional Hallmark analysis is enabled with `Run.Hallmark=TRUE` and a local `hallmark_term2gene.tsv` containing `gs_name` and `human_gene_symbol`.
 
-Microbiome defaults to importing the original alpha values. `Alpha.mode="calculate"` explicitly recalculates genus-level Shannon with natural logs and Simpson as `1-sum(p^2)`. `Relative.mode="sum_genus_counts"` explicitly derives percentages from the supplied genus-count total. These alternatives are not claimed to be the historical methods. The original multivariable formula remains `Shannon ~ Helicobacter + Rothia + Veillonella + Porphyromonas`; four separate genus predictors are also fitted univariately to each diversity index. No unreported group-comparison test or clinical positivity cutoff is added.
+Microbiome imports alpha-diversity values by default and uses genus percentages as regression predictors. `Alpha.mode="calculate"` instead calculates genus-level Shannon using natural logs and Simpson as `1-sum(p^2)`. `Relative.mode="sum_genus_counts"` derives percentages from the supplied genus-count total. `Predictor.metric="reads"` selects raw read counts instead of percentages. These settings define different calculations and should match the intended input preparation.
 
-## Outputs and verification limits
+## Outputs
 
-WES writes `selected_variants.tsv`, per-case counts, the source-named `BeforeFiltering.tsv` (the **post-filter** ANNOVAR-to-MAF input), a SNV/indel MAF and oncoplot, and a separate declared-event table/plot. Plot cohort size comes from metadata, including specified mutation-negative cases.
+WES writes selected variants, per-case counts, MAF data and oncoplots. `BeforeFiltering.tsv` is the selected-record intermediate used for ANNOVAR-to-MAF conversion. Fusion annotations are recorded separately from SNV/indel calls.
 
-WTS writes full/up/down DEG TSVs, full DEG workbooks, volcano plots and TPM heatmaps. With GSEA enabled it also saves enrichment tables, ranking vectors, result objects, reference snapshots and package/database information. `Make.plots=FALSE` skips figures, not statistical fitting. `Run.GSEA=FALSE` skips enrichment and must not be described as a full WTS/GSEA run.
+WTS writes full/up/down DEG tables, result workbooks, volcano plots and TPM heatmaps. With GSEA enabled, it also saves enrichment tables, ranking vectors, result objects and reference snapshots. `Make.plots=FALSE` skips plotting; `Run.GSEA=FALSE` skips enrichment.
 
-Microbiome writes genus composition and diversity figures, keyed regression inputs, model objects, coefficients with 95% confidence intervals, and Figure 3 analysis plots. These are generated from the supplied data; the manuscript's coefficients are not hardcoded or sign-corrected.
+Microbiome writes genus composition and diversity plots, regression inputs, coefficients with 95% confidence intervals, and fitted model objects.
 
-The scripts start from processed annotations, expression matrices and microbial tables. FASTQ processing, Mutect2, fusion callers/intersection, Kraken2 and upstream alpha-diversity tools are not executed here. The manuscript lists sequence accession **PRJNA1088908**; reproducing downstream results additionally requires the processed inputs, specimen mapping and reference versions described above.
+Completed runs also save input file hashes, settings, sample selections and `sessionInfo.txt`. WTS records the gene mapping and comparison design matrices. Repeating a calculation requires the same processed inputs, specimen mapping, settings, annotation references and package versions.
 
-The code revision and computational checks do not establish exact numerical reproduction of every published table or figure. Actual microbiome inputs and the historical annotation/environment were not supplied; remaining result discrepancies are recorded in `VALIDATION.md`. No patient data or study result workbooks are bundled.
+## Analysis scope and data
+
+The scripts begin with processed annotation, expression and microbial tables. Read alignment, variant calling, fusion calling and microbial classification are upstream steps. The sequence accession given in the manuscript is **PRJNA1088908**. Study-specific input tables and specimen mappings are supplied separately from the code.
